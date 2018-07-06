@@ -69,15 +69,3 @@ class DBDiscrete(DBBase):
    #             self._checkDataColumns(nsNow, nsoNow, ids, data, allowMerge=False)
    #       stopwatch()
    #    return idsMap
-
-   # def _dumpMeta(self):
-   #    #? параметры `__needed` и `__allowUnknown` могут ссылаться на дефолтные настройки, которые при следующей загрузке могут быть иными. неясно что с этим делать, возможно стоит приводить их к абсолютному значению
-   #    for ns, nso in self.__ns.iteritems():
-   #       if 'columns' not in nso: continue
-   #       columnsRaw=nso['columns']
-   #       if not isString(columnsRaw):
-   #          _, _, _, columnsRaw=columnsRaw
-   #          if not self.supports.picklingMeta:
-   #             columnsRaw=pickle.dumps(columnsRaw)
-   #       nso['columns']=columnsRaw
-   #    return super(DBDiscrete, self)._dumpMeta()

@@ -8,8 +8,6 @@ __ver_patch__ = 0
 __ver_sub__ = "dev"
 __version__ = "%d.%d.%d" % (__ver_major__, __ver_minor__, __ver_patch__)
 """
-
-
 :authors: John Byaka
 :copyright: Copyright 2018, Buber
 :license: Apache License 2.0
@@ -29,16 +27,6 @@ __version__ = "%d.%d.%d" % (__ver_major__, __ver_minor__, __ver_patch__)
    limitations under the License.
 """
 
-#! дать возможность включать py-sortedcontainers:sortedDict (или его вариации через модуль sortedcollections) в качестве замены для хранилища веток. это позволит строить индексы для ускорения поиска прямо внутри базы данных
-#! чтобы использовать базу данных в том числе и для построения собственных индексов, нужно добавить возможность исключать ветку из события Store и из iterIndex. Логичнее всего сделать это через дополнительный Prop (возможно наследуемый)
-#! подготовить self._branchLock выставляемый для веток при записи. это позволит выполнять специфичные операции записи (такие как удаление всей ветки рекурсивно) в фоне - достаточно удалить целевой обьект из индекса и выставить блокировку. после чего остальные операции удаления можно делать в фоне (предварительно сделав автономную копию итератора по веткуе). и тогда параллельно можно выполнять операции чтения, и даже записи (но в другие ветки естественно). этот механизм нужно сделать не через Props ибо он должен уметь работать для удаленной из индекса ветки
-#! нужен встроенный механизм для background задачь с эмуляцией асинхронности
-#! убедиться, что логика работы дефолтных значений для Props непротеворечива. иначе говоря если дефолтное значение задано то в случае пустого Prop должно возвращаться именно дефолтное значение (если не включено и не произошло наследование)
-#! доделать механизм стоп-паттернов в имени айдишника, смотри метод `_inited()`
-#? былобы здорово добавить нормализацию Props - если задано дефолтное значение, и переданное значение равно ему, нет смысла записывать его в индекс
-#! сделать расширение, реализующее концепцию дискретов и использующее ленивые вычисления и всплывающую Prop
-#? масштабирование через перенос префиксов реализуется крайне тривиально - введением нового Prop (без дополнительных свойств) и его проверкой при обращении к индексу. единственный нюанс - проверка этого Prop и соответствующие действия при его наличии происходят гдето посреди кода соответствующих методов, в расширением вклиниться туда неполучится. нужно либо реализовывать базовую обработку и хук на уровне ядра, либо разбивать соответствующие методы на части (одной из которых будет обработку текущего обьекта в иерархии)
-
 class DBBase(object):
    def __init__(self, workspace, *args, **kwargs):
       self.version=__version__
@@ -47,7 +35,6 @@ class DBBase(object):
       self.workspace=workspace
       self._speedStats=defaultdict(lambda:deque2(maxlen=99999))
       self._speedStatsMax=defaultdict(int)
-      self._idBadPattern=[]
       self.settings=MagicDict({})
       self.supports=MagicDict({})
       self._propMap={}
@@ -92,7 +79,8 @@ class DBBase(object):
          'persistentProperties':False, 'inMemoryProperties':True,
          'prop_link':True,
       }
-      self._branchLock={}
+      # self._idBadPattern=[]
+      # self._branchLock={}
       #
       kwargs2=self._init(*args, **kwargs)
       kwargs2=kwargs2 if isDict(kwargs2) else {}
@@ -110,20 +98,18 @@ class DBBase(object):
       self.settings.randomEx_maxAttempts=9
       self.settings.randomEx_sleepTime=0.001
       self.settings.return_frozen=True
-      self.settings.merge_ex=True
+      self.settings.dataMerge_ex=True
+      self.settings.dataMerge_deep=False
       self.settings.force_removeChilds=True
       self.settings.force_removeChilds_calcProps=False
       return kwargs
 
-   def _inited(self, autoLoad=True, **kwargs):
+   def _inited(self, **kwargs):
       self.inited=True
       # tArr=set(self._idBadPattern)
       # self._idBadPattern=None
       self._initPreExit()
-      if autoLoad:
-         self.load(andReset=True)
-      else:
-         self._reset()
+      self._reset()
 
    def stopwatch(self, name):
       mytime=timetime()
@@ -139,49 +125,15 @@ class DBBase(object):
       if val>self._speedStatsMax[name]:
          self._speedStatsMax[name]=val
 
-   def _stats(self, **kwargs):
-      speedTree=defaultdict(dict)
-      speedFlat=defaultdict(lambda: (0,)*5)
+   def stats(self, **kwargs):
+      res={}
+      res['speedstatsTree']=defaultdict(dict)
+      res['speedstatsFlat']=defaultdict(lambda: (0,)*5)
       for k, v in self._speedStats.iteritems():
          name, ext=k.split('@', 1)
          val=(len(v), min(v), arrMedian(v), max(v), self._speedStatsMax[k])
-         speedTree[name][ext]=val
-         speedFlat[name]=tuple(speedFlat[name][i]+s if i else max(speedFlat[name][i], s) for i,s in enumerate(val))
-      return speedTree, speedFlat
-
-   def stats(self, returnRaw=False):
-      speedTree, speedFlat=self._stats()
-      if returnRaw:
-         return {
-            'speedstatsFlat':speedFlat,
-            'speedstatsTree':speedTree,
-         }
-      colName=('Method', 'N', 'min', 'mid', 'max', 'maxAll')
-      colW=tuple(len(s) for s in colName)
-      for name, val in speedFlat.iteritems():
-         val=[time2human(s, inMS=False) if i else str(s) for i,s in enumerate(val)]
-         if val[-1]==val[-2]: val[-1]='-'
-         speedFlat[name]=tuple(val)
-         colW=tuple(max(s, len(val[i-1])) if i else colW[0] for i,s in enumerate(colW))
-         for ext, val in speedTree[name].iteritems():
-            val=[time2human(s, inMS=False) if (i and not isStr(s)) else str(s) for i,s in enumerate(val)]
-            if val[-1]==val[-2]: val[-1]='-'
-            speedTree[name][ext]=tuple(val)
-            colW=tuple(max(s, len(val[i-1])) if i else max(colW[0], len('%s  %s'%(name, ext))) for i,s in enumerate(colW))
-      #
-      res=[]
-      res.append(' | '.join(s.center(colW[i]) for i,s in enumerate(colName))+'|')
-      res.insert(0, '-'*len(res[0]))
-      res.append('-'*len(res[0]))
-      for name in sorted(speedTree):
-         oo=(name,)+speedFlat[name]
-         res.append(' | '.join(s.center(colW[i]) if i else s.ljust(colW[i]) for i,s in enumerate(oo))+'|')
-         for ext in sorted(speedTree[name]):
-            o=speedTree[name][ext]
-            s=[ext.rjust(colW[0])]+[s.center(colW[i+1]) for i,s in enumerate(o)]
-            res.append(' | '.join(s)+'|')
-         res.append('-'*len(res[0]))
-      res='\n'.join(res)
+         res['speedstatsTree'][name][ext]=val
+         res['speedstatsFlat'][name]=tuple(res['speedstatsFlat'][name][i]+s if i else max(res['speedstatsFlat'][name][i], s) for i,s in enumerate(val))
       return res
 
    def _regProp(self, name, default=None, inherit=False, needed=False, bubble=False, persistent=False):
@@ -271,7 +223,7 @@ class DBBase(object):
          isExist, props, _=self._findInIndex(ids, strictMode=True, calcProperties=calcProperties)
          if not isExist:
             stopwatch()
-            raise BadLinkError('Refering to non-existed obj: %s'%(ids,))
+            raise BadLinkError('Referring to non-existed obj: %s'%(ids,))
          if needChain is not False:
             needChain.append((ids, props))
       stopwatch()
@@ -304,14 +256,20 @@ class DBBase(object):
       self._loadedIndex(self.__index)
 
    def _loadedMeta(self, data):
+      # print_r(self.__meta)
+      # raw_input()
       pass
 
    def _loadedIndex(self, data):
       pass
 
-   def load(self, andReset=True, **kwargs):
+   def _connect(self, **kwargs):
+      pass
+
+   def connect(self, andReset=True, **kwargs):
       if andReset:
          self._reset()
+      self._connect(andReset=andReset, **kwargs)
 
    def _reset(self):
       self._initMeta()
@@ -510,10 +468,11 @@ class DBBase(object):
    def _saveMetaToStore(self, **kwargs):
       pass
 
-   def _dictMerge(self, o1, o2, changed=None, changedType='key', **kwargs):
-      stopwatch=self.stopwatch('_dictMerge@DBBase')
-      if self.settings['merge_ex']:
-         dictMerge(o1, o2, changed=changed, changedType=changedType, modify=True)
+   def _dataMerge(self, o1, o2, changed=None, changedType='key', **kwargs):
+      stopwatch=self.stopwatch('_dataMerge@DBBase')
+      if self.settings['dataMerge_ex']:
+         #! перевети на dictMergeEx
+         dictMerge(o1, o2, changed=changed, changedType=changedType, modify=True, recursive=self.settings['dataMerge_deep'])
          stopwatch()
          return True
       else:

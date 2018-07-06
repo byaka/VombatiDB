@@ -2,8 +2,6 @@
 from ..utils import *
 from ..DBBase import DBBase
 
-#! стоит попробовать переписать проверялку типов на самогенерирующиеся конечные автоматы, при грамотном подходе это может быть ощутимо быстрее
-
 def __init():
    return DBWithColumns, ('Columns', 'cols')
 
@@ -24,6 +22,7 @@ class DBWithColumns(DBBase):
 
    def _loadedNS(self, data):
       self.__ns=data  # создаем приватную копию для текущего класса, поскольку настоящая привязана к другому
+      self.__columns={}
       for ns, nso in data.iteritems():
          if 'columns' not in nso: continue
          columnsRaw=nso['columns']
@@ -33,19 +32,24 @@ class DBWithColumns(DBBase):
       return super(DBWithColumns, self)._loadedNS(data)
 
    def setColumns(self, ns, columns):
-      nsMap=self.__ns
-      if ns not in nsMap:
+      if ns not in self.__ns:
          raise ValueError('Namespace "%s" not exist'%ns)
       if not columns:
-         if 'columns' in nsMap[ns]: del nsMap[ns]['columns']
+         if 'columns' in self.__ns[ns]: del self.__ns[ns]['columns']
+         if ns in self.__columns: del self.__columns[ns]
          return
-      if not isDict(columns):
+      if not isinstance(columns, dict):
          raise ValueError('Incorrect `columns` format')
-      columnsRaw=columns.copy()
+      self.__ns[ns]['columns']=columns.copy()
       allowUnknown=columns.pop('__allowUnknown', None)
-      allowUnknown=self.settings.columns_default_allowUnknown if allowUnknown is None else allowUnknown
+      if allowUnknown is None:
+         allowUnknown=self.settings.columns_default_allowUnknown
+         self.__ns[ns]['columns']['__allowUnknown']=allowUnknown
       colNeeded=columns.pop('__needed', None)
-      colNeeded=not(self.settings.columns_default_allowMissed) if colNeeded is None else colNeeded
+      if colNeeded is None:
+         colNeeded=not(self.settings.columns_default_allowMissed)
+         self.__ns[ns]['columns']['__needed']=colNeeded
+      # parsing column's config
       colAllowed=set(columns)
       if colNeeded:
          if colNeeded is True: colNeeded=colAllowed
@@ -53,8 +57,8 @@ class DBWithColumns(DBBase):
       else: colNeeded=False
       colDenied=set()
       colTypes={}
-      nsMap[ns]['columns']=(False if allowUnknown else colAllowed, colNeeded, colDenied, colTypes, columnsRaw)
-      # converting and checking `columns`
+      self.__columns[ns]=(False if allowUnknown else colAllowed, colNeeded, colDenied, colTypes)
+      # converting and checking column's types
       for k, o in columns.iteritems():
          if not isString(k):
             raise ValueError('Column name must be string: %s'%(k,))
@@ -92,7 +96,7 @@ class DBWithColumns(DBBase):
       if setts is None: pass  # removed
       elif 'columns' not in setts or not setts['columns']:
          self.setColumns(name, None)
-      elif isDict(setts['columns']):
+      elif isinstance(setts['columns'], dict):
          self.setColumns(name, setts['columns'])
       super(DBWithColumns, self)._namespaceChanged(name, setts, old)
 
@@ -103,14 +107,14 @@ class DBWithColumns(DBBase):
          idNow, nsNow, nsi, nsoNow=idsMap[-1]
          if nsoNow and 'columns' in nsoNow:
             data=self.get(ids, existChecked=props, returnRaw=True, strictMode=False)
-            if isDict(data):
+            if isinstance(data, dict):
                self._checkDataColumns(nsNow, nsoNow, ids, data, allowMerge=False)
          stopwatch()
       return idsMap
 
    def _checkDataColumns(self, nsNow, nsoNow, ids, data, allowMerge):
       stopwatch=self.stopwatch('_checkDataColumns@DBWithColumns')
-      colAllowed, colNeeded, colDenied, colTypes, _=nsoNow['columns']
+      colAllowed, colNeeded, colDenied, colTypes=self.__columns[nsNow]
       dataKeys=None
       idForErr=ids or 'NS(%s)'%nsNow
       if colAllowed:
@@ -152,23 +156,20 @@ class DBWithColumns(DBBase):
       stopwatch1()
       stopwatch()
 
-   def _validateOnSetNS(self, ids, data, lastId, nsPrev, nsoPrev, nsMap, **kwargs):
-      nsNow, nsi, nsoNow=super(DBWithColumns, self)._validateOnSetNS(ids, data, lastId, nsPrev, nsoPrev, nsMap, **kwargs)
+   def _validateOnSetNS(self, ids, data, lastId, nsPrev, nsoPrev, nsMap, propsUpdate=None, **kwargs):
+      nsNow, nsi, nsoNow=super(DBWithColumns, self)._validateOnSetNS(ids, data, lastId, nsPrev, nsoPrev, nsMap, propsUpdate=propsUpdate, **kwargs)
       stopwatch=self.stopwatch('_validateOnSetNS@DBWithColumns')
-      if nsoNow and isDict(data) and 'columns' in nsoNow:
+      if data is True and propsUpdate and 'link' in propsUpdate and propsUpdate['link']:
+         if kwargs['existChecked'] is None:
+            isExist, props, _=self._findInIndex(ids, strictMode=True)
+            kwargs['existChecked']=(isExist, props)
+         else:
+            isExist, props=existChecked if isinstance(existChecked, tuple) else (True, existChecked)
+         # on link changes, we need to validate columns
+         if not isExist or 'link' not in props or props['link']!=propsUpdate['link']:
+            data=self.get(propsUpdate['link'], returnRaw=True, strictMode=True)
+      if nsoNow and isinstance(data, dict) and 'columns' in nsoNow:
          allowMerge=kwargs['allowMerge']
          self._checkDataColumns(nsNow, nsoNow, ids, data, allowMerge=allowMerge)
       stopwatch()
       return nsNow, nsi, nsoNow
-
-   def _dumpMeta(self):
-      #? параметры `__needed` и `__allowUnknown` могут ссылаться на дефолтные настройки, которые при следующей загрузке могут быть иными. неясно что с этим делать, возможно стоит приводить их к абсолютному значению
-      for ns, nso in self.__ns.iteritems():
-         if 'columns' not in nso: continue
-         columnsRaw=nso['columns']
-         if not isString(columnsRaw):
-            _, _, _, _, columnsRaw=columnsRaw
-            if not self.supports.picklingMeta:
-               columnsRaw=pickle.dumps(columnsRaw)
-         nso['columns']=columnsRaw
-      return super(DBWithColumns, self)._dumpMeta()

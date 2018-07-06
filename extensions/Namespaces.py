@@ -13,7 +13,7 @@ class DBNamespaced(DBBase):
       res=super(DBNamespaced, self)._init(*args, **kwargs)
       self.supports.namespaces=True
       self.settings.ns_checkIndexOnUpdateNS=True
-      self.settings.ns_checkIndexOnLoad=True  #! добавить
+      self.settings.ns_checkIndexOnLoad=True
       self.settings.ns_config_keyMap=['parent', 'child', ('onlyIndexed', True)]
       self.settings.ns_parseId_allowOnlyName=True
       self.namespace_pattern_parse=re.compile(r'^([a-zA-Z]+)(\d+|[\-\.\s#$@_].+)$')
@@ -24,6 +24,8 @@ class DBNamespaced(DBBase):
       if '_namespace' not in data: data._namespace={}
       self.__ns=data._namespace
       self._loadedNS(self.__ns)
+      if self.settings.ns_checkIndexOnLoad:
+         self._checkIndexForNS(calcMaxIndex=True)
 
    def _loadedNS(self, data):
       pass
@@ -211,7 +213,7 @@ class DBNamespaced(DBBase):
       nsPrev=self._parseId2NS(ids[-2])[0] if len(ids)>1 else None
       nsoPrev=nsMap[nsPrev] if (nsPrev and nsPrev in nsMap) else None
       # namespace-rules checking
-      nsNow, nsi, nsoNow=self._validateOnSetNS(ids, data, lastId, nsPrev, nsoPrev, nsMap, allowMerge=allowMerge, **kwargs)
+      nsNow, nsi, nsoNow=self._validateOnSetNS(ids, data, lastId, nsPrev, nsoPrev, nsMap, existChecked=existChecked, allowMerge=allowMerge, **kwargs)
       ids=tuple(ids)
       needReplaceMaxIndex=(nsoNow and nsi and data is not None and data is not False)
       stopwatch()

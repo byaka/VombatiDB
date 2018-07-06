@@ -57,8 +57,7 @@ class DBStorePersistentWithCache(DBBase):
       self.workspace.log(3, 'Backuped fs-store (%s files) in %ims: %s'%(len(files), getms(inMS=True)-mytime, name))
       return True
 
-   def load(self, strictMode=True, needBackup=True, needRebuild=True, andMeta=True, **kwargs):
-      super(DBStorePersistentWithCache, self).load(**kwargs)
+   def _connect(self, strictMode=True, needBackup=True, needRebuild=True, andMeta=True, **kwargs):
       self.workspace.log(4, 'Loading fs-store from "%s"'%(self.settings.path))
       mytime=getms(inMS=True)
       filesForRemove={}
@@ -76,6 +75,7 @@ class DBStorePersistentWithCache(DBBase):
          self.snapshot(needBackup=False)
          self.workspace.log(3, 'Rebuilded fs-store in %ims'%(getms(inMS=True)-mytime2))
       self.workspace.log(3, 'Loading fs-store from "%s" in %ims'%(self.settings.path, getms(inMS=True)-mytime))
+      super(DBStorePersistentWithCache, self)._connect(strictMode=strictMode, **kwargs)
 
    def _checkFileFromStore(self, f):
       if f=='meta': f='meta.dat'
@@ -227,7 +227,7 @@ class DBStorePersistentWithCache(DBBase):
             return None
       elif data is not True and isExist and allowMerge and old is not True:
          diff={}
-         isEx=self._dictMerge(old, data, changed=diff, changedType='new')
+         isEx=self._dataMerge(old, data, changed=diff, changedType='new')
          if isEx:
             if not diff: return False
             else: return diff
