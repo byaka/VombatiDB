@@ -35,8 +35,8 @@ class DBBase(object):
       self.workspace=workspace
       self._speedStats=defaultdict(lambda:deque2(maxlen=99999))
       self._speedStatsMax=defaultdict(int)
-      self.settings=MagicDict({})
-      self.supports=MagicDict({})
+      self.settings=self._settings=MagicDictCold({})
+      self.supports=self._supports=MagicDictCold({})
       self._propMap={}
       self._propCompiled={
          'inheritCBMap':{},
@@ -160,7 +160,6 @@ class DBBase(object):
       # compiling defaultMinimalProps
       self._propCompiled['defaultMinimalProps']={}
       for k in set(itertools.chain(self._propCompiled['needed'], self._propCompiled['default'])):
-         o=self._propMap[k]
          if k in self._propCompiled['needed'] and k not in self._propCompiled['default']: break
          self._propCompiled['defaultMinimalProps'][k]=self._propCompiled['default'][k]
       else:
@@ -248,7 +247,7 @@ class DBBase(object):
       signal.signal(signal.SIGINT, self.close)
 
    def _initMeta(self):
-      self.__meta=MagicDict({})
+      self.__meta={}
       self._loadedMeta(self.__meta)
 
    def _initIndex(self):
@@ -256,8 +255,6 @@ class DBBase(object):
       self._loadedIndex(self.__index)
 
    def _loadedMeta(self, data):
-      # print_r(self.__meta)
-      # raw_input()
       pass
 
    def _loadedIndex(self, data):
@@ -266,7 +263,11 @@ class DBBase(object):
    def _connect(self, **kwargs):
       pass
 
-   def connect(self, andReset=True, **kwargs):
+   def connect(self, andReset=False, **kwargs):
+      self._settings=dict(self.settings)
+      self.settings._MagicDictCold__freeze()
+      self._supports=dict(self.supports)
+      self.supports._MagicDictCold__freeze()
       if andReset:
          self._reset()
       self._connect(andReset=andReset, **kwargs)
@@ -275,12 +276,11 @@ class DBBase(object):
       self._initMeta()
       self._initIndex()
 
-   def _markInIndex(self, ids, strictMode=True, _changes=None, **kwargs):
+   def _markInIndex(self, ids, strictMode=True, _changes=None, **props):
       stopwatch=self.stopwatch('_markInIndex@DBBase')
       iLast=len(ids)-1
       propRules=self._propCompiled
       propMerger=propRules['mergerBubble'] if propRules['bubble'] else False
-      props=kwargs
       for k in propRules['needed']:
          if k in props: continue
          if k not in propRules['default']:
@@ -329,12 +329,11 @@ class DBBase(object):
          branch=branch[id][1]
          stopwatch()
 
-   def _unmarkInIndex(self, ids, _changes=None, **kwargs):
+   def _unmarkInIndex(self, ids, _changes=None, **props):
       stopwatch=self.stopwatch('_unmarkInIndex@DBBase')
       iLast=len(ids)-1
       propRules=self._propCompiled
       propMerger=propRules['mergerBubble'] if propRules['bubble'] else False
-      props=kwargs
       if _changes is None or _changes is False or not isinstance(_changes, dict): _changes=None
       branch=self.__index
       for i, id in enumerate(ids):
@@ -360,8 +359,8 @@ class DBBase(object):
 
    def iterIndex(self, ids=None, recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True):
       mytime=timetime()
-      soLong=self.settings['iterIndex_soLong']
-      sleepTime=self.settings['iterIndex_sleepTime']
+      soLong=self._settings['iterIndex_soLong']
+      sleepTime=self._settings['iterIndex_sleepTime']
       propRules=self._propCompiled
       propMerger=propRules['mergerInherit'] if calcProperties and propRules['inheritCBMap'] else False
       if ids is not None:
@@ -457,22 +456,22 @@ class DBBase(object):
 
    def _parseMeta(self, data):
       data=pickle.loads(data)
-      if not isDict(data):
+      if not isinstance(data, dict):
          raise TypeError('Meta must be a dict')
-      self.__meta=MagicDict(data)
+      self.__meta=dictMergeEx(data, self.__meta, modify=True, recursive=True)
       self._loadedMeta(self.__meta)
 
    def _dumpMeta(self):
-      return pickle.dumps(dict(self.__meta))
+      return pickle.dumps(self.__meta, pickle.HIGHEST_PROTOCOL)
 
    def _saveMetaToStore(self, **kwargs):
       pass
 
    def _dataMerge(self, o1, o2, changed=None, changedType='key', **kwargs):
       stopwatch=self.stopwatch('_dataMerge@DBBase')
-      if self.settings['dataMerge_ex']:
+      if self._settings['dataMerge_ex']:
          #! перевети на dictMergeEx
-         dictMerge(o1, o2, changed=changed, changedType=changedType, modify=True, recursive=self.settings['dataMerge_deep'])
+         dictMerge(o1, o2, changed=changed, changedType=changedType, modify=True, recursive=self._settings['dataMerge_deep'])
          stopwatch()
          return True
       else:
@@ -480,11 +479,11 @@ class DBBase(object):
          stopwatch()
 
    def randomExSoLongCB(self, mult, vals, pref, suf, i):
-      if i>self.settings['randomEx_maxAttempts']:
+      if i>self._settings['randomEx_maxAttempts']:
          self.workspace.log(0, 'randomEx generating value so long for (%s, %s, %s), %s attempts, aborted'%(pref, mult, suf, i))
          raise OverflowError('randomeEx generating so long (%s attempts)'%i)
       self.workspace.log(2, 'randomEx generating value so long for (%s, %s, %s), attempt %s'%(pref, mult, suf, i))
-      self.workspace.server._sleep(self.settings['randomEx_sleepTime'])
+      self.workspace.server._sleep(self._settings['randomEx_sleepTime'])
       return mult
 
    def _generateId(self, ids, offsetLast=True, **kwargs):
@@ -492,7 +491,7 @@ class DBBase(object):
       stopwatch=self.stopwatch('_generateId@DBBase')
       ids=ids[:-1] if offsetLast else ids
       tArr=self._findInIndex(ids, strictMode=True, calcProperties=False, offsetLast=False)
-      newId=randomEx(vals=tArr, soLong=self.settings['randomEx_soLong'], cbSoLong=self.randomExSoLongCB)
+      newId=randomEx(vals=tArr, soLong=self._settings['randomEx_soLong'], cbSoLong=self.randomExSoLongCB)
       ids+=(newId,)
       stopwatch()
       return ids
@@ -534,8 +533,8 @@ class DBBase(object):
          tArr=((ids, (isExist, data, allowMerge, props, propsUpdate)),)
          self._set(tArr, **kwargs)
       if data is None:
-         if self.settings['force_removeChilds'] and allowForceRemoveChilds:
-            cNeedProps=self.settings['force_removeChilds_calcProps']
+         if self._settings['force_removeChilds'] and allowForceRemoveChilds:
+            cNeedProps=self._settings['force_removeChilds_calcProps']
             # принудительно удаляем детей, чтобы избежать конфликта при повторном использовании техже имен
             for idsC, (propsC, l) in self.iterIndex(ids=ids, recursive=True, treeMode=False, safeMode=True, calcProperties=cNeedProps):
                tArr=((idsC, (True, None, False, propsC, {})),)
@@ -576,7 +575,7 @@ class DBBase(object):
          return None
       res=self._get(ids, props, **kwargs)
       if res is not True and not returnRaw:
-         if self.settings['return_frozen']:
+         if self._settings['return_frozen']:
             res=MagicDictCold(res)
             res._MagicDictCold__freeze()
          else:

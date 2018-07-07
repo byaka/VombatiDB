@@ -29,9 +29,9 @@ class DBSearch_simple(DBBase):
       return res
 
    def _inited(self, **kwargs):
-      if lruDict and self.settings.queryCache:
+      if lruDict and self._settings['queryCache']:
          #! если создавать кеш здесь, то как его отключить извне
-         self._queryCache=lruDict(self.settings.queryCache)
+         self._queryCache=lruDict(self._settings['queryCache'])
       return super(DBSearch_simple, self)._inited(**kwargs)
 
    def query(self, what=None, branch=None, where=None, limit=None, pre=None, recursive=True, returnRaw=False, calcProperties=True, env=None, q=None, checkIsEmpty=True, allowCache=True):
@@ -102,7 +102,7 @@ class DBSearch_simple(DBBase):
       if _user_input:
          _data_need1=self.query_pattern_check_data.search(_user_input) is not None
          _ns_need1=self.query_pattern_check_ns.search(_user_input) is not None
-         if _ns_need1 and not self.supports.namespaces:
+         if _ns_need1 and not self._supports['namespaces']:
             raise ValueError("You can't use `NS` or `INDEX` in query, missed extension DBNamespaced")
       else:
          _data_need1, _ns_need1=False, False

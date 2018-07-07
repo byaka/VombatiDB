@@ -3,6 +3,7 @@ from ..utils import *
 from ..DBBase import DBBase
 from gevent.lock import RLock
 from gevent.fileobject import FileObjectThread as geventFileObjectThread
+import gc
 
 def __init():
    return DBStorePersistentWithCache, ('DBStorePersistentWithCache', 'StorePersistentWithCache')
@@ -22,10 +23,9 @@ class DBStorePersistentWithCache(DBBase):
       self.settings.flushOnExit=True
       # self.settings.flushAuto=False
       self.settings.path=path
-      self.settings.default_emulateAsync=True
-      self.settings.storeMerge_soLong=0.1
-      self.settings.storeMerge_sleepTime=0.000001
-      self.___fsVars=MagicDict({
+      self.settings.store_controlGC=True
+      self.___store=MagicDict({
+         'loaded':False,
          'writeCount':0,
       })
       self._store_data_lock=RLock()
@@ -35,8 +35,8 @@ class DBStorePersistentWithCache(DBBase):
 
    def _reset(self, *args, **kwargs):
       super(DBStorePersistentWithCache, self)._reset(*args, **kwargs)
-      if not os.path.isdir(self.settings.path):
-         raise ValueError('Path for fs-store not exist: "%s"'%self.settings.path)
+      if not os.path.isdir(self._settings['path']):
+         raise ValueError('Path for fs-store not exist: "%s"'%self._settings['path'])
       self.__cache={}
       self._changed={}
       self._loadedStore(self.__cache)
@@ -49,7 +49,7 @@ class DBStorePersistentWithCache(DBBase):
       mytime=getms(inMS=True)
       name=name or '%s.zip'%datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
       self.workspace.log(4, 'Backuping fs-store (%s files): %s'%(len(files), name))
-      path=os.path.join(self.settings.path, 'backup')
+      path=os.path.join(self._settings['path'], 'backup')
       fbk=os.path.join(path, name)
       try: os.mkdir(path)
       except OSError: pass
@@ -58,7 +58,9 @@ class DBStorePersistentWithCache(DBBase):
       return True
 
    def _connect(self, strictMode=True, needBackup=True, needRebuild=True, andMeta=True, **kwargs):
-      self.workspace.log(4, 'Loading fs-store from "%s"'%(self.settings.path))
+      self.workspace.log(4, 'Loading fs-store from "%s"'%(self._settings['path']))
+      _gcWasEnabled=self._settings['store_controlGC'] and gc.isenabled()
+      if _gcWasEnabled: gc.disable()
       mytime=getms(inMS=True)
       filesForRemove={}
       filesForBackup={}
@@ -71,16 +73,18 @@ class DBStorePersistentWithCache(DBBase):
       if needRebuild and filesForRemove:
          mytime2=getms(inMS=True)
          self.workspace.log(4, 'Rebuilding fs-store, removing old (%s files)'%len(filesForRemove))
-         folderClear(self.settings.path, alsoFiles=True, alsoDirs=False, silent=False, filter=filesForRemove, isBlacklist=False)
+         folderClear(self._settings['path'], alsoFiles=True, alsoDirs=False, silent=False, filter=filesForRemove, isBlacklist=False)
          self.snapshot(needBackup=False)
          self.workspace.log(3, 'Rebuilded fs-store in %ims'%(getms(inMS=True)-mytime2))
-      self.workspace.log(3, 'Loading fs-store from "%s" in %ims'%(self.settings.path, getms(inMS=True)-mytime))
+      self.workspace.log(3, 'Loading fs-store from "%s" in %ims'%(self._settings['path'], getms(inMS=True)-mytime))
       super(DBStorePersistentWithCache, self)._connect(strictMode=strictMode, **kwargs)
+      if _gcWasEnabled: gc.enable()
+      self.___store.loaded=True
 
    def _checkFileFromStore(self, f):
       if f=='meta': f='meta.dat'
       elif f=='data': f='data.dat'
-      fp=os.path.join(self.settings.path, f)
+      fp=os.path.join(self._settings['path'], f)
       s=os.path.isfile(fp)
       return f, fp, s
 
@@ -150,7 +154,7 @@ class DBStorePersistentWithCache(DBBase):
 
    def _dataFileFind(self):
       ptrn=re.compile(r"[0-9]+([.]{0,1}[0-9]*)\.json", re.U).match
-      files=os.listdir(self.settings.path)
+      files=os.listdir(self._settings['path'])
       files=[float(f[:-5]) for f in files if ptrn(f)]
       files=sorted(files)
       return files
@@ -242,11 +246,13 @@ class DBStorePersistentWithCache(DBBase):
 
    def close(self, **kwargs):
       super(DBStorePersistentWithCache, self).close(**kwargs)
-      if self.settings.flushOnExit:
+      if self._settings['flushOnExit'] and self.___store.loaded:
          self.flush(andMeta=True, andData=True, **kwargs)
 
    def snapshot(self, needBackup=True, **kwargs):
       self.workspace.log(4, 'Making snapshot of DB to fs-store')
+      _gcWasEnabled=self._settings['store_controlGC'] and gc.isenabled()
+      if _gcWasEnabled: gc.disable()
       mytime=getms(inMS=True)
       if needBackup:
          filesForBackup=[]
@@ -274,7 +280,7 @@ class DBStorePersistentWithCache(DBBase):
                else:
                   _data=self.workspace.server._serializeJSON(data)
                _props={k:v for k,v in props.iteritems() if k in propRules['persistent']}
-               _props=pickle.dumps(_props).encode('string_escape') if _props else ''
+               _props=pickle.dumps(_props, pickle.HIGHEST_PROTOCOL).encode('string_escape') if _props else ''
                line='\n%s\n%s\n%s'%(_ids, _props, _data)
                f.write(line)
                c+=1
@@ -282,9 +288,12 @@ class DBStorePersistentWithCache(DBBase):
                self.workspace.log(1, 'Error while saving %s: %s'%(ids, getErrorInfo()))
       self.workspace.log(3, 'Saved Data to fs-store (%i items) in %ims'%(c, getms(inMS=True)-mytime2))
       self.workspace.log(3, 'Maked snapshot of DB to fs-store in %ims'%(getms(inMS=True)-mytime))
+      if _gcWasEnabled: gc.enable()
 
    def flush(self, andMeta=True, andData=True, **kwargs):
       self.workspace.log(4, 'Saving changes to fs-store')
+      _gcWasEnabled=self._settings['store_controlGC'] and gc.isenabled()
+      if _gcWasEnabled: gc.disable()
       mytime=getms(inMS=True)
       if andMeta:
          self._saveMetaToStore(**kwargs)
@@ -315,7 +324,7 @@ class DBStorePersistentWithCache(DBBase):
                   if not propDiff: _props=''
                   else:
                      _props={k:v for k,v in propDiff.iteritems() if k in propRules['persistent']}
-                     _props=pickle.dumps(_props).encode('string_escape') if _props else ''
+                     _props=pickle.dumps(_props, pickle.HIGHEST_PROTOCOL).encode('string_escape') if _props else ''
                   #
                   if not _props and _data=='+': continue
                   _ids='\t'.join(ids)
@@ -324,9 +333,11 @@ class DBStorePersistentWithCache(DBBase):
                   c+=1
             self.workspace.log(3, 'Saved Data to fs-store (%i items) in %ims'%(c, getms(inMS=True)-mytime2))
          except Exception:
+            if _gcWasEnabled: gc.enable()
             #! here we need to dump changes (tArr and self._flushQueue) somewhere
             raise
       self.workspace.log(3, 'Saved changes to fs-store in %ims'%(getms(inMS=True)-mytime))
+      if _gcWasEnabled: gc.enable()
 
    def _saveMetaToStore(self, **kwargs):
       self.workspace.log(4, 'Saving Meta to fs-store')
@@ -344,5 +355,5 @@ class DBStorePersistentWithCache(DBBase):
          fn, fp, fExist=self._checkFileFromStore(s)
          if fExist: tArr.add(fn)
       if tArr:
-         folderClear(self.settings.path, alsoFiles=True, alsoDirs=False, silent=False, filter=tArr, isBlacklist=False)
+         folderClear(self._settings['path'], alsoFiles=True, alsoDirs=False, silent=False, filter=tArr, isBlacklist=False)
       return super(DBStorePersistentWithCache, self).truncate(**kwargs)

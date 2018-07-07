@@ -43,11 +43,11 @@ class DBWithColumns(DBBase):
       self.__ns[ns]['columns']=columns.copy()
       allowUnknown=columns.pop('__allowUnknown', None)
       if allowUnknown is None:
-         allowUnknown=self.settings.columns_default_allowUnknown
+         allowUnknown=self._settings['columns_default_allowUnknown']
          self.__ns[ns]['columns']['__allowUnknown']=allowUnknown
       colNeeded=columns.pop('__needed', None)
       if colNeeded is None:
-         colNeeded=not(self.settings.columns_default_allowMissed)
+         colNeeded=not(self._settings['columns_default_allowMissed'])
          self.__ns[ns]['columns']['__needed']=colNeeded
       # parsing column's config
       colAllowed=set(columns)
@@ -102,7 +102,7 @@ class DBWithColumns(DBBase):
 
    def _checkIdsNS(self, ids, props=None, **kwargs):
       idsMap=super(DBWithColumns, self)._checkIdsNS(ids, props=props, **kwargs)
-      if idsMap and self.settings['columns_checkOnNSHook_allowed']:
+      if idsMap and self._settings['columns_checkOnNSHook_allowed']:
          stopwatch=self.stopwatch('_checkIdsNS@DBWithColumns')
          idNow, nsNow, nsi, nsoNow=idsMap[-1]
          if nsoNow and 'columns' in nsoNow:

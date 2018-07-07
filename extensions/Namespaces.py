@@ -13,7 +13,7 @@ class DBNamespaced(DBBase):
       res=super(DBNamespaced, self)._init(*args, **kwargs)
       self.supports.namespaces=True
       self.settings.ns_checkIndexOnUpdateNS=True
-      self.settings.ns_checkIndexOnLoad=True
+      self.settings.ns_checkIndexOnConnect=True
       self.settings.ns_config_keyMap=['parent', 'child', ('onlyIndexed', True)]
       self.settings.ns_parseId_allowOnlyName=True
       self.namespace_pattern_parse=re.compile(r'^([a-zA-Z]+)(\d+|[\-\.\s#$@_].+)$')
@@ -21,10 +21,15 @@ class DBNamespaced(DBBase):
       return res
 
    def _initNS(self, data=None):
-      if '_namespace' not in data: data._namespace={}
-      self.__ns=data._namespace
+      if '_namespace' not in data: data['_namespace']={}
+      self.__ns=data['_namespace']
       self._loadedNS(self.__ns)
-      if self.settings.ns_checkIndexOnLoad:
+
+   def _connect(self, **kwargs):
+      super(DBNamespaced, self)._connect(**kwargs)
+      if self._settings['ns_checkIndexOnConnect']:
+         if not self.__ns:
+            self.workspace.log(2, 'Namespaces not configured!')
          self._checkIndexForNS(calcMaxIndex=True)
 
    def _loadedNS(self, data):
@@ -69,7 +74,7 @@ class DBNamespaced(DBBase):
       if calcMaxIndex and calcMaxIndex is not True:
          calcMaxIndex=calcMaxIndex if isList(calcMaxIndex) else (list(calcMaxIndex) if isTuple(calcMaxIndex) else [calcMaxIndex])
          calcMaxIndex=[ns for ns in calcMaxIndex if ns in nsMap]
-      for ids, (props, l) in self.iterIndex(treeMode=False):
+      for ids, (props, l) in self.iterIndex(ids=None, recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True):
          tArr={}
          self._checkIdsNS(ids, nsIndexMap=tArr, props=props, childCount=l)
          if not calcMaxIndex: continue
@@ -91,7 +96,7 @@ class DBNamespaced(DBBase):
       stopwatch=self.stopwatch('_parseId2NS@DBNamespaced')
       res=self.namespace_pattern_parse.search(id)
       if res is None:
-         if self.settings.ns_parseId_allowOnlyName and self.namespace_pattern_check.match(id) is not None:
+         if self._settings['ns_parseId_allowOnlyName'] and self.namespace_pattern_check.match(id) is not None:
             res=(id, None)
          else:
             res=(None, None)
@@ -118,7 +123,7 @@ class DBNamespaced(DBBase):
    def configureNS(self, config, andClear=True, keyMap=None):
       if andClear: self.__ns.clear()
       #! добавить поддержку разных форматов конфига с авто-конвертом в дефолтный
-      keyMap=keyMap or self.settings.ns_config_keyMap
+      keyMap=keyMap or self._settings['ns_config_keyMap']
       tArr1=[]
       for ns, vals in config:
          params={}
@@ -132,7 +137,7 @@ class DBNamespaced(DBBase):
                params[k]=vdef if i>=len(vals) else vals[i]
          self.setNS(ns, allowCheckIndex=False, **params)
          tArr1.append(ns)
-      if self.settings.ns_checkIndexOnUpdateNS:
+      if self._settings['ns_checkIndexOnUpdateNS']:
          self._checkIndexForNS(calcMaxIndex=(True if andClear else tArr1))
 
    def setNS(self, ns, parent=None, child=None, onlyIndexed=True, allowCheckIndex=True, **kwargs):
@@ -152,7 +157,7 @@ class DBNamespaced(DBBase):
       if not oldSetts or oldSetts!=setts:
          nsMap[ns]=setts
          self._namespaceChanged(ns, setts, oldSetts)
-         if allowCheckIndex and self.settings.ns_checkIndexOnUpdateNS: self._checkIndexForNS(calcMaxIndex=ns)
+         if allowCheckIndex and self._settings.ns_checkIndexOnUpdateNS: self._checkIndexForNS(calcMaxIndex=ns)
 
    def delNS(self, ns, strictMode=True, allowCheckIndex=True):
       if not isString(ns) or not self.namespace_pattern_check.match(ns):
@@ -164,7 +169,7 @@ class DBNamespaced(DBBase):
          return
       setts=nsMap.pop(ns)
       self._namespaceChanged(ns, None, setts)
-      if allowCheckIndex and self.settings.ns_checkIndexOnUpdateNS: self._checkIndexForNS(calcMaxIndex=False)
+      if allowCheckIndex and self._settings['ns_checkIndexOnUpdateNS']: self._checkIndexForNS(calcMaxIndex=False)
 
    def _validateOnSetNS(self, ids, data, lastId, nsPrev, nsoPrev, nsMap, **kwargs):
       stopwatch=self.stopwatch('_validateOnSetNS@DBNamespaced')

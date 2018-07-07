@@ -60,7 +60,7 @@ class DBDiscrete(DBBase):
 
    # def _checkIdsNS(self, ids, props=None, **kwargs):
    #    idsMap=super(DBDiscrete, self)._checkIdsNS(ids, props=props, **kwargs)
-   #    if idsMap and self.settings['columns_checkOnNSHook_allowed']:
+   #    if idsMap and self._settings['columns_checkOnNSHook_allowed']:
    #       stopwatch=self.stopwatch('_checkIdsNS@DBDiscrete')
    #       idNow, nsNow, nsi, nsoNow=idsMap[-1]
    #       if nsoNow and 'columns' in nsoNow:
