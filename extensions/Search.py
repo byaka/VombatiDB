@@ -111,8 +111,7 @@ class DBSearch_simple(DBBase):
       #
       _return_template=what or ('IDS, (PROPS, DATA, CHILDS)' if _data_need1 else 'IDS, (PROPS, CHILDS)')
       code=["""
-      G=globals().copy()
-      def RUN(G=G):
+      def RUN():
          try:"""+pre+"""
             db_parseId2NS=DB._parseId2NS
             db_get=DB.get
@@ -124,8 +123,6 @@ class DBSearch_simple(DBBase):
                ID=IDS[-1]"""%(branch, recursive, calcProperties)]
       _code=code.append
       _indent1=_tab*5
-      if not returnRaw:
-         _code(_indent1+"PROPS=_MagicDict(PROPS)")
       if _ns_need1:
          _code(_indent1+"NS, INDEX=db_parseId2NS(ID)")
       if _data_need1:
@@ -138,6 +135,8 @@ class DBSearch_simple(DBBase):
       if not _data_need1 and _data_need2:
          _code(_indent1+"try: DATA=db_get(IDS, existChecked=PROPS, returnRaw=%s, strictMode=True)"%(returnRaw))
          _code(_indent1+"except _StrictModeError: continue")
+      if not returnRaw:
+         _code(_indent1+"PROPS=_MagicDict(PROPS)")
       if limit==1:
          _code(_indent1+"return "+_return_template)
       else:
