@@ -77,7 +77,7 @@ class DBBase(object):
          'detailedDiffData': False,
          'picklingMeta':True, 'picklingData':False, 'picklingProperties':False,
          'persistentProperties':False, 'inMemoryProperties':True,
-         'prop_link':True,
+         'prop_link':True, 'prop_backlink':True,
       }
       # self._idBadPattern=[]
       # self._branchLock={}
@@ -88,6 +88,7 @@ class DBBase(object):
 
    def _init(self, *args, **kwargs):
       self._regProp('link', persistent=True)
+      self._regProp('backlink', persistent=True)
       #
       for k, v in self.__supportsDefault.iteritems():
          self.supports.setdefault(k, v)
@@ -193,9 +194,6 @@ class DBBase(object):
       if props is None:
          isExist, props, _=self._findInIndex(ids, strictMode=True, calcProperties=calcProperties)
       else: isExist=None
-      if isExist:
-         # just checking for links (if this is link ofc)
-         self.resolveLink(ids, props=props, calcProperties=False)
       stopwatch()
       return ids, isExist, props
 
@@ -292,6 +290,11 @@ class DBBase(object):
       branch=self.__index
       for i, id in enumerate(ids):
          isExist=id in branch
+         if isExist:
+            propsCurrent=branch[id][0]
+            # validating link's target
+            if 'link' in propsCurrent and propsCurrent['link']:
+               self.resolveLink(propsCurrent['link'], calcProperties=False)
          ids2=ids[:i+1]
          if i==iLast:
             if isExist:
@@ -319,11 +322,12 @@ class DBBase(object):
                stopwatch()
                raise ValueError("Parent '%s' not exists and some property's default vals missed: %s"%(ids2, ids))
             self.workspace.log(2, 'Parent "%s" not exists, creating it with default properties: %s'%(ids2, ids))
-            branch[id]=(propRules['defaultMinimalProps'].copy(), {})
+            propsCurrent=propRules['defaultMinimalProps'].copy()
+            branch[id]=(propsCurrent, {})
          # and now bubbling props if needed (also for missed parents in non-strict mode)
          if propMerger and props:
             tDiff=None if _changes is None else {}
-            propMerger(branch[id][0], props, cbArgs=(ids2,), changedCB=tDiff)
+            propMerger(propsCurrent, props, cbArgs=(ids2,), changedCB=tDiff)
             if tDiff:
                _changes[ids2]=tDiff
          branch=branch[id][1]
@@ -378,16 +382,17 @@ class DBBase(object):
       if not branchCurrent:
          raise StopIteration
       tQueue=deque(((ids, iter(branchCurrent.keys()) if safeMode else branchCurrent.iterkeys(), branchCurrent, propsPre),))
-      # testMap=defaultdict(int)
       while tQueue:
          ids, iterParrent, branchParrent, propsParrent=tQueue.pop()
-         # testMap[ids]+=1
          for id in iterParrent:
             if soLong and timetime()-mytime>=soLong:
                self.workspace.server._sleep(sleepTime)
                mytime=timetime()
             if id not in branchParrent: continue
             propsCurrent, branchCurrent=branchParrent[id]
+            # validating link's target
+            if 'link' in propsCurrent and propsCurrent['link']:
+               self.resolveLink(propsCurrent['link'], calcProperties=False)
             ids2=ids+(id,) if ids else (id,)
             # and now we inherit props if needed
             if propMerger and propsParrent:
@@ -408,7 +413,6 @@ class DBBase(object):
                break
             else:
                tQueue.append((ids2, iterCurrent, branchCurrent, propsCurrent))
-      # print '!!!', {k:v for k,v in testMap.iteritems() if v>1}
 
    def _findInIndex(self, ids, strictMode=False, calcProperties=True, offsetLast=False):
       # поиск обьекта в индексе и проверка, существует ли вся его иерархия
@@ -427,6 +431,7 @@ class DBBase(object):
          if id is None and i==iLast:
             # айди не указан, используется при автоматической генерации айди
             res[0]=None
+            res[1], res[2]={}, None
             break
          if id not in res[2]:
             if i==iLast: res[0]=False
@@ -435,9 +440,13 @@ class DBBase(object):
                   stopwatch()
                   raise StrictModeError('Parent "%s" not exists: %s'%(id, ids))
                res[0]=None
+            res[1], res[2]={}, None
             break
          res[0]=True
          propsCurrent, res[2]=res[2][id]
+         # validating link's target
+         if 'link' in propsCurrent and propsCurrent['link']:
+            self.resolveLink(propsCurrent['link'], calcProperties=False)
          # and now we inherit props if needed
          if propMerger:
             propsQueue[i]=res[1]
@@ -506,7 +515,7 @@ class DBBase(object):
 
    def _validateOnSet(self, ids, data, isExist=None, props=None, allowMerge=None, propsUpdate=None, **kwargs):
       # хук, позволяющий проверить или модефицировать данные (и Props) перед их добавлением
-      return data
+      return isExist, data, allowMerge
 
    def set(self, ids, data, allowMerge=True, existChecked=None, propsUpdate=None, allowForceRemoveChilds=True, **kwargs):
       # если вызывающий хочет пропустить проверку `self._findInIndex()`, нужно передать в `existChecked`, высчитанные `properties` (в таком случае будет считаться, что обьект существует) илиже `(isExist, properties)` если нужно указать непосредственный статус `isExist`
@@ -525,7 +534,23 @@ class DBBase(object):
          # идентификатор не указан, требуется сгенерировать его
          ids=self._generateId(ids, props=props)
       if data is not True and 'link' in props and props['link']: propsUpdate['link']=None
-      data=self._validateOnSet(ids, data, isExist=isExist, props=props, allowMerge=allowMerge, propsUpdate=propsUpdate)
+      #
+      _backlinkDel, _oldLink, _backlinkAdd, _newLink=False, None, False, None
+      if 'link' in propsUpdate:
+         _newLink=propsUpdate['link']
+         if 'link' in props and props['link']:
+            _oldLink=props['link']
+            if _oldLink==_newLink:
+               del propsUpdate['link']
+            else:
+               self.resolveLink(_newLink, calcProperties=False)
+               _backlinkDel=True
+               _backlinkAdd=True
+         elif _newLink is not None:
+            self.resolveLink(_newLink, calcProperties=False)
+            _backlinkAdd=True
+      #
+      isExist, data, allowMerge=self._validateOnSet(ids, data, isExist=isExist, props=props, allowMerge=allowMerge, propsUpdate=propsUpdate)
       if data is None and not isExist:
          stopwatch()
          return
@@ -535,13 +560,36 @@ class DBBase(object):
       if data is None:
          if self._settings['force_removeChilds'] and allowForceRemoveChilds:
             cNeedProps=self._settings['force_removeChilds_calcProps']
+            _backlinkDelMap=defaultdict(list)
+            _backlinkIgnoreMap=set()
             # принудительно удаляем детей, чтобы избежать конфликта при повторном использовании техже имен
             for idsC, (propsC, l) in self.iterIndex(ids=ids, recursive=True, treeMode=False, safeMode=True, calcProperties=cNeedProps):
                tArr=((idsC, (True, None, False, propsC, {})),)
                self._set(tArr, **kwargs)
+               #! а почему нет удаления из индекса?
+               if 'link' in propsC and propsC['link'] and propsC['link'] not in _backlinkIgnoreMap:
+                  _backlinkDelMap[propsC['link']].append(idsC)
+               _backlinkIgnoreMap.add(idsC)
+               if idsC in _backlinkDelMap:
+                  del _backlinkDelMap[idsC]
+            # updating back-link for sub-branches
+            for ids1, tArr1 in _backlinkDelMap.iteritems():
+               tArr=self._findInIndex(ids1, strictMode=True, calcProperties=False)[1]['backlink']
+               for s in tArr1: tArr.remove(s)
+               self._markInIndex(ids1, backlink=tArr)
          self._unmarkInIndex(ids, **propsUpdate)
       elif not isExist or propsUpdate:
          self._markInIndex(ids, **propsUpdate)
+      # updating back-link
+      if _backlinkAdd:
+         tArr=self._findInIndex(_newLink, strictMode=True, calcProperties=False)[1]
+         tArr=tArr['backlink'] if 'backlink' in tArr else set()
+         tArr.add(ids)
+         self._markInIndex(_newLink, backlink=tArr)
+      if _backlinkDel:
+         tArr=self._findInIndex(_oldLink, strictMode=True, calcProperties=False)[1]['backlink']
+         tArr.remove(ids)
+         self._markInIndex(_oldLink, backlink=tArr)
       stopwatch()
 
    def _set(self, items, **kwargs):
@@ -589,7 +637,7 @@ class DBBase(object):
    def truncate(self, **kwargs):
       self._reset()
 
-   def close(self, **kwargs):
+   def close(self, *args, **kwargs):
       self.workspace.log(4, 'Closing db')
 
    def __enter__(self):

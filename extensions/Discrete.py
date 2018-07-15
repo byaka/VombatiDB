@@ -21,6 +21,7 @@ class DBDiscrete(DBBase):
       return res
 
    #~ остальные случаи (вроде загрузки из файла) покроются засчет выставленных атрибутов `default` и `needed`
+   #? неуверен настчет удаления обьекта - всплывет ли тогда корректно
    def _set(self, items, **kwargs):
       changes=super(DBDiscrete, self)._set(items, **kwargs)
       for ids, (isExist, data, allowMerge, props, propsUpdate) in items:

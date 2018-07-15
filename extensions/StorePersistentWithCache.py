@@ -2,7 +2,7 @@
 from ..utils import *
 from ..DBBase import DBBase
 from gevent.lock import RLock
-from gevent.fileobject import FileObjectThread as geventFileObjectThread
+from gevent.fileobject import FileObjectThread as geventFileObject
 import gc
 
 def __init():
@@ -244,8 +244,8 @@ class DBStorePersistentWithCache(DBBase):
    def _get(self, ids, props, **kwargs):
       return self.__cache[ids]
 
-   def close(self, **kwargs):
-      super(DBStorePersistentWithCache, self).close(**kwargs)
+   def close(self, *args, **kwargs):
+      super(DBStorePersistentWithCache, self).close(*args, **kwargs)
       if self._settings['flushOnExit'] and self.___store.loaded:
          self.flush(andMeta=True, andData=True, **kwargs)
 
@@ -269,7 +269,7 @@ class DBStorePersistentWithCache(DBBase):
       c=0
       fp=self._checkFileFromStore('data')[1]
       with self._store_data_lock, open(fp, 'w') as f:
-         geventFileObjectThread(f)
+         geventFileObject(f)
          for ids, (props, l) in self.iterIndex(treeMode=False, calcProperties=False):
             try:
                _ids='\t'.join(ids)
@@ -306,7 +306,7 @@ class DBStorePersistentWithCache(DBBase):
          fp=self._checkFileFromStore('data')[1]
          try:
             with self._store_data_lock, open(fp, 'a+') as f:
-               geventFileObjectThread(f)
+               geventFileObject(f)
                tArr, self._flushQueue=self._flushQueue.copy(), {}
                for ids, (propDiff, dataDiff, timeC, timeM) in tArr.iteritems():
                   if dataDiff is None: _data='-'
