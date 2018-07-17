@@ -12,8 +12,8 @@ except ImportError:
 def __init():
    return DBSearch_simple, ('Search', 'Query')
 
-class QueryError(BaseDBError):
-   """ Error while processing query. """
+class QueryError(BaseDBErrorPrefixed):
+   """Error occured while processing query"""
 
 class DBSearch_simple(DBBase):
    def _init(self, *args, **kwargs):
@@ -28,11 +28,12 @@ class DBSearch_simple(DBBase):
       self._queryCache=None
       return res
 
-   def _inited(self, **kwargs):
+   def _connect(self, **kwargs):
       if lruDict and self._settings['queryCache']:
-         #! если создавать кеш здесь, то как его отключить извне
          self._queryCache=lruDict(self._settings['queryCache'])
-      return super(DBSearch_simple, self)._inited(**kwargs)
+      else:
+         self._queryCache=None
+      return super(DBSearch_simple, self)._connect(**kwargs)
 
    def query(self, what=None, branch=None, where=None, limit=None, pre=None, recursive=True, returnRaw=False, calcProperties=True, env=None, q=None, checkIsEmpty=True, allowCache=True):
       if q is not None and not isinstance(q, (str, unicode, types.CodeType, types.FunctionType)):
@@ -195,7 +196,7 @@ class DBSearch_simple(DBBase):
       return qFunc
 
    def _queryErrorHandler(self, q, qRaw):
-      res='Error occured while processing query:\n%r'%qRaw
+      res='\n%r'%qRaw
       eSource, eLine, eObj, eTB=getErrorInfo(raw=True)
       qArr, lineOffset=q.split('\n')[3:-3], 4
       if eSource==self.query_envName:

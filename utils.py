@@ -16,16 +16,28 @@ from functionsex import *
 timetime=time.time
 
 class BaseDBError(Exception):
-   """ Base Exception class fro other DB-specific errors. """
+   pass
 
-class BadLinkError(BaseDBError):
-   """ Raise this if link referred to non-exists data. """
+class BaseDBErrorPrefixed(BaseDBError):
+   """Something goes wrong in VambatiDB"""
+   def __init__(self, msg=None, useDefPrefix=True):
+      if msg and useDefPrefix:
+         msg='%s: %s'%(self.__class__.__doc__, msg)
+      else:
+         msg=msg or self.__class__.__doc__
+      super(BaseDBError, self).__init__(msg)
+
+class BadIdError(BaseDBErrorPrefixed):
+   """Object's id contains forbidden symbols"""
+
+class BadLinkError(BaseDBErrorPrefixed):
+   """Referring to non-existed object"""
 
 class StrictModeError(BaseDBError):
    """ Raise this only in strict mode for cases, where usually we shows warning. """
 
-class ExtensionDependencyError(BaseDBError):
-   """ Raise this if requested extensions have unmet dependencies. """
+class ExtensionDependencyError(BaseDBErrorPrefixed):
+   """Unmet dependencies for extension"""
 
 def statsFormat(data):
    speedTree, speedFlat=data['speedstatsTree'], data['speedstatsFlat']

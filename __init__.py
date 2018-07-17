@@ -65,6 +65,6 @@ def VombatiDB(exts):
             else:
                continue
             s=oo[0] if len(oo)==1 else ' or '.join(oo)
-            raise ExtensionDependencyError('Requested extension %s depends of %s'%(o.__name__, s))
+            raise ExtensionDependencyError('%s need %s'%(o.__name__, s))
    print 'Creating DB-instance '+('(original)' if not exts else 'with exts %s'%', '.join(o.__name__ for o in exts))
    return ClassFactory(DBBase, exts, fixPrivateAttrs=True)

@@ -79,7 +79,7 @@ class DBBase(object):
          'persistentProperties':False, 'inMemoryProperties':True,
          'prop_link':True, 'prop_backlink':True,
       }
-      # self._idBadPattern=[]
+      self._idBadPattern=set()
       # self._branchLock={}
       #
       kwargs2=self._init(*args, **kwargs)
@@ -107,10 +107,26 @@ class DBBase(object):
 
    def _inited(self, **kwargs):
       self.inited=True
-      # tArr=set(self._idBadPattern)
-      # self._idBadPattern=None
+      self._compileIdBadPatterns()
       self._initPreExit()
       self._reset()
+
+   def _compileIdBadPatterns(self):
+      code=['def RUN(data):']
+      _tab=' '*3
+      for o in self._idBadPattern:
+         if isinstance(o, (str, unicode)):
+            if '"' in o:
+               o=re.sub(r'(?<!\\)"','\\"', o)
+            code.append(_tab+'if "%s" in data: return True'%o)
+         else:
+            raise ValueError('Incorrect bad-pattern for id: %s'%(o,))
+      code.append(_tab+'return False')
+      code='\n'.join(code)
+      code=compile(code, 'idBadPattern', 'exec')
+      tEnv={}
+      exec code in tEnv
+      self._idBadPattern=tEnv['RUN']
 
    def stopwatch(self, name):
       mytime=timetime()
@@ -131,7 +147,9 @@ class DBBase(object):
       res['speedstatsTree']=defaultdict(dict)
       res['speedstatsFlat']=defaultdict(lambda: (0,)*5)
       for k, v in self._speedStats.iteritems():
-         name, ext=k.split('@', 1)
+         if '@' in k:
+            name, ext=k.split('@', 1)
+         else: name, ext=k, ''
          val=(len(v), min(v), arrMedian(v), max(v), self._speedStatsMax[k])
          res['speedstatsTree'][name][ext]=val
          res['speedstatsFlat'][name]=tuple(res['speedstatsFlat'][name][i]+s if i else max(res['speedstatsFlat'][name][i], s) for i,s in enumerate(val))
@@ -203,28 +221,33 @@ class DBBase(object):
       except BadLinkError:
          return False
 
-   def resolveLink(self, ids, props=None, calcProperties=False, needChain=False):
-      stopwatch=self.stopwatch('resolveLink%s@DBBase'%('-calcProps' if calcProperties else ''))
-      ids=self._prepIds(ids)
-      if not props:
-         isExist, props, _=self._findInIndex(ids, strictMode=True, calcProperties=calcProperties)
-         if not isExist:
-            stopwatch()
-            return None, None
-      if not isinstance(needChain, list): needChain=False
+   def resolveLink(self, ids, needChain=False, idsPrepared=False, needChainIsFunc=False):
+      stopwatch=self.stopwatch('resolveLink@DBBase')
+      if not idsPrepared:
+         ids=self._prepIds(ids)
+      if needChain and needChainIsFunc is True: _needChain=needChain
+      elif needChain is False or needChain is None or not isinstance(needChain, list): needChain=False
       else:
-         needChain.append((ids, props))
-      while 'link' in props and props['link']:
-         #! нужна защита от циклических ссылок
-         ids=props['link']
-         isExist, props, _=self._findInIndex(ids, strictMode=True, calcProperties=calcProperties)
-         if not isExist:
-            stopwatch()
-            raise BadLinkError('Referring to non-existed obj: %s'%(ids,))
+         _needChain=needChain.append
+      tQueue=deque((ids, ))
+      _tQueueAppend=tQueue.append
+      _tQueuePop=tQueue.pop
+      _root=self.__index
+      while tQueue:
+         ids=_tQueuePop()
+         branch=_root
+         props=None
+         for id in ids:
+            if id not in branch:
+               stopwatch()
+               raise BadLinkError(ids)
+            props, branch=branch[id]
+            if 'link' in props and props['link']:
+               _tQueueAppend(props['link'])
          if needChain is not False:
-            needChain.append((ids, props))
+            _needChain((ids, props))
       stopwatch()
-      return ids, props
+      return ids
 
    def isLink(self, idsOrProps, calcProperties=False):
       stopwatch=self.stopwatch('isLink%s@DBBase'%('-calcProps' if calcProperties else ''))
@@ -292,9 +315,6 @@ class DBBase(object):
          isExist=id in branch
          if isExist:
             propsCurrent=branch[id][0]
-            # validating link's target
-            if 'link' in propsCurrent and propsCurrent['link']:
-               self.resolveLink(propsCurrent['link'], calcProperties=False)
          ids2=ids[:i+1]
          if i==iLast:
             if isExist:
@@ -361,10 +381,15 @@ class DBBase(object):
       stopwatch()
       return True
 
-   def iterIndex(self, ids=None, recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True):
+   def iterIndex(self, ids=None, recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True, passLinkChecking=False):
       mytime=timetime()
-      soLong=self._settings['iterIndex_soLong']
-      sleepTime=self._settings['iterIndex_sleepTime']
+      _soLong=self._settings['iterIndex_soLong']
+      _sleepTime=self._settings['iterIndex_sleepTime']
+      _sleep=self.workspace.server._sleep
+      _timetime=timetime
+      _len=len
+      _iter=iter
+      _resolveLink=self.resolveLink
       propRules=self._propCompiled
       propMerger=propRules['mergerInherit'] if calcProperties and propRules['inheritCBMap'] else False
       if ids is not None:
@@ -381,52 +406,64 @@ class DBBase(object):
       # iterating
       if not branchCurrent:
          raise StopIteration
-      tQueue=deque(((ids, iter(branchCurrent.keys()) if safeMode else branchCurrent.iterkeys(), branchCurrent, propsPre),))
+      tQueue=deque(((ids, _iter(branchCurrent.keys()) if safeMode else branchCurrent.iterkeys(), branchCurrent, propsPre),))
+      _tQueueAppend=tQueue.append
+      _tQueuePop=tQueue.pop
       while tQueue:
-         ids, iterParrent, branchParrent, propsParrent=tQueue.pop()
+         ids, iterParrent, branchParrent, propsParrent=_tQueuePop()
          for id in iterParrent:
-            if soLong and timetime()-mytime>=soLong:
-               self.workspace.server._sleep(sleepTime)
-               mytime=timetime()
+            if _soLong and _timetime()-mytime>=_soLong:
+               _sleep(_sleepTime)
+               mytime=_timetime()
             if id not in branchParrent: continue
             propsCurrent, branchCurrent=branchParrent[id]
             # validating link's target
-            if 'link' in propsCurrent and propsCurrent['link']:
-               self.resolveLink(propsCurrent['link'], calcProperties=False)
-            ids2=ids+(id,) if ids else (id,)
+            if not passLinkChecking and 'link' in propsCurrent and propsCurrent['link']:
+               _resolveLink(propsCurrent['link'], idsPrepared=True)
+            ids2=ids+(id,)
             # and now we inherit props if needed
             if propMerger and propsParrent:
                propsCurrent=propsCurrent.copy() if propsCurrent else {}
                propMerger(propsCurrent, propsParrent, cbArgs=(ids2,))
             else:
                propsCurrent=(propsCurrent.copy() if propsCurrent else {}) if propMerger else propsCurrent
-            extCmd=yield ids2, (propsCurrent, len(branchCurrent))
+            extCmd=yield ids2, (propsCurrent, _len(branchCurrent))
             if extCmd is not None:
                yield  # this allows to use our generator inside `for .. in ..` without skipping on `send`
                if extCmd is False: continue
             if not recursive: continue
-            if not len(branchCurrent): continue
-            iterCurrent=iter(branchCurrent.keys()) if safeMode else branchCurrent.iterkeys()
+            if not _len(branchCurrent): continue
+            iterCurrent=_iter(branchCurrent.keys()) if safeMode else branchCurrent.iterkeys()
             if treeMode:
-               tQueue.append((ids, iterParrent, branchParrent, propsParrent))
-               tQueue.append((ids2, iterCurrent, branchCurrent, propsCurrent))
+               _tQueueAppend((ids, iterParrent, branchParrent, propsParrent))
+               _tQueueAppend((ids2, iterCurrent, branchCurrent, propsCurrent))
                break
             else:
-               tQueue.append((ids2, iterCurrent, branchCurrent, propsCurrent))
+               _tQueueAppend((ids2, iterCurrent, branchCurrent, propsCurrent))
 
-   def _findInIndex(self, ids, strictMode=False, calcProperties=True, offsetLast=False):
+   def _findInIndex(self, ids, strictMode=False, calcProperties=True, offsetLast=False, needChain=None, passLinkChecking=False):
       # поиск обьекта в индексе и проверка, существует ли вся его иерархия
-      stopwatch=self.stopwatch('_findInIndex%s@DBBase'%('-calcProps' if calcProperties else ''))
+      _stopwatch=self.stopwatch
+      stopwatch=_stopwatch('_findInIndex%s@DBBase'%('-calcProps' if calcProperties else ''))
       iLast=len(ids)-1
       propRules=self._propCompiled
       propMerger=propRules['mergerInherit'] if calcProperties and propRules['inheritCBMap'] else False
       if propMerger and propRules['defaultMinimalProps'] is not None:
          tArr1=propRules['defaultMinimalProps'].copy()
       else: tArr1={}
-      res=[None, tArr1, self.__index]
+      _root=self.__index
+      res=[None, tArr1, _root]
       if propMerger:
          propsQueue=[None]*iLast
-      for (i, id) in enumerate(ids):
+      if not passLinkChecking:
+         _linkQueue=deque()
+      if needChain is False or needChain is None or not isinstance(needChain, list):
+         needChain, _needChain=False, None
+      else:
+         linkChainI=len(needChain)
+         _needChain=needChain.append
+         needChain.append((ids, None))  # we change it later, when we will have props
+      for i, id in enumerate(ids):
          if offsetLast and i==iLast: break
          if id is None and i==iLast:
             # айди не указан, используется при автоматической генерации айди
@@ -445,8 +482,8 @@ class DBBase(object):
          res[0]=True
          propsCurrent, res[2]=res[2][id]
          # validating link's target
-         if 'link' in propsCurrent and propsCurrent['link']:
-            self.resolveLink(propsCurrent['link'], calcProperties=False)
+         if not passLinkChecking and 'link' in propsCurrent and propsCurrent['link']:
+            self.resolveLink(propsCurrent['link'], needChain=_needChain, idsPrepared=True, needChainIsFunc=True)
          # and now we inherit props if needed
          if propMerger:
             propsQueue[i]=res[1]
@@ -460,6 +497,9 @@ class DBBase(object):
       if propMerger:
          res[1]=res[1].copy() if res[1] else {}
          propMerger(res[1], propsQueue, cbArgs=(ids,))
+      #
+      if needChain is not False:
+         needChain[linkChainI]=(ids, res[1])
       stopwatch()
       return res
 
@@ -507,7 +547,7 @@ class DBBase(object):
 
    def link(self, ids, ids2, existChecked=None):
       ids=self._prepIds(ids)
-      ids2=self.checkIds(ids2)[0]
+      ids2=self._prepIds(ids2)
       return self.set(ids, True, allowMerge=False, existChecked=existChecked, propsUpdate={'link':ids2})
 
    def remove(self, ids, existChecked=None):
@@ -533,6 +573,8 @@ class DBBase(object):
       if not ids[-1]:
          # идентификатор не указан, требуется сгенерировать его
          ids=self._generateId(ids, props=props)
+      if not isExist and self._idBadPattern(ids[-1]) is True:
+         raise BadIdError(ids[-1])
       if data is not True and 'link' in props and props['link']: propsUpdate['link']=None
       #
       _backlinkDel, _oldLink, _backlinkAdd, _newLink=False, None, False, None
@@ -543,17 +585,33 @@ class DBBase(object):
             if _oldLink==_newLink:
                del propsUpdate['link']
             else:
-               self.resolveLink(_newLink, calcProperties=False)
+               try:
+                  badLinkChain=[]
+                  self.resolveLink(_newLink, needChain=badLinkChain.append, idsPrepared=True, needChainIsFunc=True)
+               except BadLinkError, e:
+                  # удаляем плохой линк
+                  for ids, props in reversed(badLinkChain):
+                     self.set(ids, None, existChecked=props, allowForceRemoveChilds=True)
+                  stopwatch()
+                  raise e
                _backlinkDel=True
                _backlinkAdd=True
          elif _newLink is not None:
-            self.resolveLink(_newLink, calcProperties=False)
+            try:
+               badLinkChain=[]
+               self.resolveLink(_newLink, needChain=badLinkChain.append, idsPrepared=True, needChainIsFunc=True)
+            except BadLinkError, e:
+               # удаляем плохой линк
+               for ids, props in reversed(badLinkChain):
+                  self.set(ids, None, existChecked=props, allowForceRemoveChilds=True)
+               stopwatch()
+               raise e
             _backlinkAdd=True
       #
       isExist, data, allowMerge=self._validateOnSet(ids, data, isExist=isExist, props=props, allowMerge=allowMerge, propsUpdate=propsUpdate)
       if data is None and not isExist:
          stopwatch()
-         return
+         return ids
       elif data is not False:
          tArr=((ids, (isExist, data, allowMerge, props, propsUpdate)),)
          self._set(tArr, **kwargs)
@@ -566,7 +624,6 @@ class DBBase(object):
             for idsC, (propsC, l) in self.iterIndex(ids=ids, recursive=True, treeMode=False, safeMode=True, calcProperties=cNeedProps):
                tArr=((idsC, (True, None, False, propsC, {})),)
                self._set(tArr, **kwargs)
-               #! а почему нет удаления из индекса?
                if 'link' in propsC and propsC['link'] and propsC['link'] not in _backlinkIgnoreMap:
                   _backlinkDelMap[propsC['link']].append(idsC)
                _backlinkIgnoreMap.add(idsC)
@@ -591,34 +648,36 @@ class DBBase(object):
          tArr.remove(ids)
          self._markInIndex(_oldLink, backlink=tArr)
       stopwatch()
+      return ids
 
    def _set(self, items, **kwargs):
       pass
 
    def get(self, ids, existChecked=None, returnRaw=False, strictMode=False, **kwargs):
-      ids=self._prepIds(ids)
-      # если вызывающий хочет пропустить проверку `self._findInIndex()`, нужно передать в `existChecked`, высчитанные `properties` (в таком случае будет считаться, что обьект существует) илиже `(isExist, properties)` если нужно указать непосредственный статус `isExist`
       stopwatch=self.stopwatch('get@DBBase')
-      if existChecked is None:
-         isExist, props, _=self._findInIndex(ids, strictMode=strictMode)
-      elif isinstance(existChecked, tuple):
-         isExist, props=existChecked
-      else:
-         isExist, props=True, existChecked
-      #
-      if not isExist:
-         stopwatch()
-         return None
-      badLinkChain=[]
+      ids=self._prepIds(ids)
+      if ids[-1] is None:
+         # this case allowed by `_findInIndex()` so we need to chek it manually
+         raise ValueError('Incorrect IDS: %s'%(ids,))
+      # если вызывающий хочет пропустить проверку `self._findInIndex()`, нужно передать в `existChecked`, высчитанные `properties` (в таком случае будет считаться, что обьект существует) илиже `(isExist, properties)` если нужно указать непосредственный статус `isExist`
       try:
-         ids, props=self.resolveLink(ids, props, calcProperties=True, needChain=badLinkChain)
+         badLinkChain=[]
+         if existChecked is None:
+            isExist, props, _=self._findInIndex(ids, strictMode=strictMode, calcProperties=True, needChain=badLinkChain)
+            ids=badLinkChain[-1][0]  # getting target, if this was link
+         else:
+            isExist, props=existChecked if isinstance(existChecked, tuple) else (True, existChecked)
+            ids=self.resolveLink(ids, needChain=badLinkChain.append, idsPrepared=True, needChainIsFunc=True)
       except BadLinkError, e:
          if strictMode:
             stopwatch()
             raise StrictModeError(e)
          # удаляем плохой линк
-         for ids, props in badLinkChain:
-            self.remove(ids, existChecked=props)
+         for ids, props in reversed(badLinkChain):
+            self.set(ids, None, existChecked=props, allowForceRemoveChilds=True)
+         stopwatch()
+         return None
+      if not isExist:
          stopwatch()
          return None
       res=self._get(ids, props, **kwargs)

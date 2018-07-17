@@ -5,12 +5,19 @@ from ..DBBase import DBBase
 def __init():
    return DBNamespaced, ('Namespaces', 'NS')
 
-class NamespaceError(BaseDBError):
-   """ Incorrect namespace order of ids. """
+class NamespaceError(BaseDBErrorPrefixed):
+   """Namespace-related error"""
+
+class NamespaceOrderError(NamespaceError):
+   """Incorrect namespaces order"""
+
+class NamespaceIndexError(NamespaceError):
+   """Incorrect index"""
 
 class DBNamespaced(DBBase):
    def _init(self, *args, **kwargs):
       res=super(DBNamespaced, self)._init(*args, **kwargs)
+      self._idBadPattern.add('?')  #! вообще здесь запрещается использовать его только первым символом, но нужна поддержка регулярных выражений или расширенная проверка с поддержкой `startswith`
       self.supports.namespaces=True
       self.settings.ns_checkIndexOnUpdateNS=True
       self.settings.ns_checkIndexOnConnect=True
@@ -51,7 +58,7 @@ class DBNamespaced(DBBase):
             (nsoNow and nsNow not in nsoPrev['child']) or
             (not nsoNow and None not in nsoPrev['child']))):
             stopwatch()
-            raise NamespaceError('Incorrect namespaces order: NS(%s) cant be child of NS(%s)'%(nsNow, nsPrev))
+            raise NamespaceOrderError('NS(%s) cant be child of NS(%s)'%(nsNow, nsPrev))
          nsoNow=None
          if nsNow and nsNow in nsMap:
             nsoNow=nsMap[nsNow]
@@ -62,7 +69,7 @@ class DBNamespaced(DBBase):
                (nsoPrev and nsPrev not in nsoNow['parent']) or
                (not nsoPrev and None not in nsoNow['parent'])):
                stopwatch()
-               raise NamespaceError('Incorrect namespaces order: NS(%s) cant be parent of NS(%s)'%(nsPrev, nsNow))
+               raise NamespaceOrderError('NS(%s) cant be parent of NS(%s)'%(nsPrev, nsNow))
          nsPrev, nsoPrev=nsNow, nsoNow
          tArr.append((idNow, nsNow, nsi, nsoNow))
       stopwatch()
@@ -176,7 +183,7 @@ class DBNamespaced(DBBase):
       if lastId is None:
          if nsoPrev and nsoPrev['child'] and None not in nsoPrev['child']:
             stopwatch()
-            raise NamespaceError('Incorrect namespaces order: NS(%s) cant be child of NS(%s)'%(None, nsPrev))
+            raise NamespaceOrderError('NS(%s) cant be child of NS(%s)'%(None, nsPrev))
          return None, None, None
       else:
          nsNow, nsi=self._parseId2NS(lastId)
@@ -187,21 +194,21 @@ class DBNamespaced(DBBase):
             except Exception:
                if nsoNow['onlyIndexed']:
                   stopwatch()
-                  raise NamespaceError('Incorrect index for id (%s)'%(lastId))
+                  raise NamespaceIndexError('index required for NS(%s)'%(nsNow,))
             #! поскольку у нас нет отдельного метода для добавления и отдельного для редактирования, проверка на индексы бесполезна
             # if nsi>(nsoNow['maxIndex'] or 0):
             #    stopwatch()
-            #    raise NamespaceError('Index for id (%s) too large'%(lastId))
+            #    raise NamespaceIndexError('too large value %s for NS(%s)'%(nsi, nsNow))
             if nsoNow['parent'] and (
                (nsoPrev and nsPrev not in nsoNow['parent']) or
                (not nsoPrev and None not in nsoNow['parent'])):
                stopwatch()
-               raise NamespaceError('Incorrect namespaces order: NS(%s) cant be parent of NS(%s)'%(nsPrev, nsNow))
+               raise NamespaceOrderError('NS(%s) cant be parent of NS(%s)'%(nsPrev, nsNow))
          if (nsoPrev and nsoPrev['child'] and (
             (nsoNow and nsNow not in nsoPrev['child']) or
             (not nsoNow and None not in nsoPrev['child']))):
             stopwatch()
-            raise NamespaceError('Incorrect namespaces order: NS(%s) cant be child of NS(%s)'%(nsNow, nsPrev))
+            raise NamespaceOrderError('NS(%s) cant be child of NS(%s)'%(nsNow, nsPrev))
          stopwatch()
          return nsNow, nsi, nsoNow
 
