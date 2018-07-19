@@ -23,8 +23,8 @@ class DBNamespaced(DBBase):
       self.settings.ns_checkIndexOnConnect=True
       self.settings.ns_config_keyMap=['parent', 'child', ('onlyIndexed', True)]
       self.settings.ns_parseId_allowOnlyName=True
-      self.namespace_pattern_parse=re.compile(r'^([a-zA-Z]+)(\d+|[\-\.\s#$@_].+)$')
-      self.namespace_pattern_check=re.compile(r'^[a-zA-Z]+$')
+      self.namespace_pattern_parse=re.compile(r'^([a-zA-Z_]+)(\d+|[\-\.\s#$@].+)$')
+      self.namespace_pattern_check=re.compile(r'^[a-zA-Z_]+$')
       return res
 
    def _initNS(self, data=None):
@@ -164,7 +164,7 @@ class DBNamespaced(DBBase):
       if not oldSetts or oldSetts!=setts:
          nsMap[ns]=setts
          self._namespaceChanged(ns, setts, oldSetts)
-         if allowCheckIndex and self._settings.ns_checkIndexOnUpdateNS: self._checkIndexForNS(calcMaxIndex=ns)
+         if allowCheckIndex and self._settings['ns_checkIndexOnUpdateNS']: self._checkIndexForNS(calcMaxIndex=ns)
 
    def delNS(self, ns, strictMode=True, allowCheckIndex=True):
       if not isString(ns) or not self.namespace_pattern_check.match(ns):
@@ -217,19 +217,37 @@ class DBNamespaced(DBBase):
       ids=ids if isinstance(ids, list) else(list(ids) if isinstance(ids, tuple) else [ids])
       lastId=ids[-1]
       nsMap=self.__ns
+      isExist, props=False, {}
       if lastId is None: pass  # default newId-generator will be invoked
       elif lastId[0]=='?':
          # namespace-based newId-generator
          ns=lastId[1:]
          lastId=ids[-1]=self._generateIdNS(ns)
+      else:
+         if existChecked is None:
+            isExist, props, _=self._findInIndex(ids, strictMode=True)
+         else:
+            isExist, props=existChecked if isinstance(existChecked, tuple) else (True, existChecked)
       nsPrev=self._parseId2NS(ids[-2])[0] if len(ids)>1 else None
       nsoPrev=nsMap[nsPrev] if (nsPrev and nsPrev in nsMap) else None
       # namespace-rules checking
-      nsNow, nsi, nsoNow=self._validateOnSetNS(ids, data, lastId, nsPrev, nsoPrev, nsMap, existChecked=existChecked, allowMerge=allowMerge, **kwargs)
+      nsNow, nsi, nsoNow=self._validateOnSetNS(ids, data, lastId, nsPrev, nsoPrev, nsMap, isExist=isExist, props=props, allowMerge=allowMerge, **kwargs)
+      if 'backlink' in props and props['backlink']:
+         # also checking namespace-rules for backlinks
+         tQueue=deque(props['backlink'])
+         while tQueue:
+            ids2=tQueue.pop()
+            isExist2, props2, _=self._findInIndex(ids2, strictMode=True, calcProperties=False, passLinkChecking=True)
+            nsPrev2=self._parseId2NS(ids2[-2])[0] if len(ids2)>1 else None
+            nsoPrev2=nsMap[nsPrev2] if (nsPrev2 and nsPrev2 in nsMap) else None
+            self._validateOnSetNS(ids2, data, ids2[-1], nsPrev2, nsoPrev2, nsMap, isExist=isExist2, props=props2, allowMerge=allowMerge, **kwargs)
+            if 'backlink' in props2 and props2['backlink']:
+               tQueue.extend(props2['backlink'])
+      # all checkings passed
       ids=tuple(ids)
       needReplaceMaxIndex=(nsoNow and nsi and data is not None and data is not False)
       stopwatch()
-      res=super(DBNamespaced, self).set(ids, data, allowMerge=allowMerge, existChecked=existChecked, **kwargs)
+      res=super(DBNamespaced, self).set(ids, data, allowMerge=allowMerge, existChecked=(isExist, props), **kwargs)
       # инкрементим `maxIndex` после добавления, чтобы в случае ошибки не увеличивать счетчик
       if needReplaceMaxIndex:
          nsoNow['maxIndex']=max(nsoNow['maxIndex'], nsi)

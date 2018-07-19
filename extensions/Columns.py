@@ -156,20 +156,15 @@ class DBWithColumns(DBBase):
       stopwatch1()
       stopwatch()
 
-   def _validateOnSetNS(self, ids, data, lastId, nsPrev, nsoPrev, nsMap, propsUpdate=None, **kwargs):
+   def _validateOnSetNS(self, ids, data, lastId, nsPrev, nsoPrev, nsMap, propsUpdate=None, isExist=None, props=None, **kwargs):
       nsNow, nsi, nsoNow=super(DBWithColumns, self)._validateOnSetNS(ids, data, lastId, nsPrev, nsoPrev, nsMap, propsUpdate=propsUpdate, **kwargs)
       stopwatch=self.stopwatch('_validateOnSetNS@DBWithColumns')
       if data is True and propsUpdate and 'link' in propsUpdate and propsUpdate['link']:
-         if kwargs['existChecked'] is None:
-            isExist, props, _=self._findInIndex(ids, strictMode=True)
-            kwargs['existChecked']=(isExist, props)
-         else:
-            isExist, props=existChecked if isinstance(existChecked, tuple) else (True, existChecked)
          # on link changes, we need to validate columns
          if not isExist or 'link' not in props or props['link']!=propsUpdate['link']:
             data=self.get(propsUpdate['link'], returnRaw=True, strictMode=True)
       if nsoNow and isinstance(data, dict) and 'columns' in nsoNow:
-         allowMerge=kwargs['allowMerge']
+         allowMerge=kwargs['allowMerge']  # мы не используем именованный аргумент чтобы дать возможность другим расширениям переопределеить дефолтное значение этого параметра
          self._checkDataColumns(nsNow, nsoNow, ids, data, allowMerge=allowMerge)
       stopwatch()
       return nsNow, nsi, nsoNow
