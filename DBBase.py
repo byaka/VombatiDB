@@ -444,7 +444,7 @@ class DBBase(object):
    def _findInIndex(self, ids, strictMode=False, calcProperties=True, offsetLast=False, needChain=None, passLinkChecking=False):
       # поиск обьекта в индексе и проверка, существует ли вся его иерархия
       _stopwatch=self.stopwatch
-      stopwatch=_stopwatch('_findInIndex%s@DBBase'%('-calcProps' if calcProperties else ''))
+      stopwatch=_stopwatch('_findInIndex%s%s@DBBase'%('-calcProps' if calcProperties else '', '-noLinkCheck' if passLinkChecking else ''))
       iLast=len(ids)-1
       propRules=self._propCompiled
       propMerger=propRules['mergerInherit'] if calcProperties and propRules['inheritCBMap'] else False
