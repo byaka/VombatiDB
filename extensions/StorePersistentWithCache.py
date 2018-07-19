@@ -19,9 +19,9 @@ class DBStorePersistentWithCache(DBBase):
       self.supports.writableData=True
       self.supports.picklingProperties=True
       #
-      # self.settings.flushOnChange=False
+      # self.settings.flushOnChange=False  #! implement
       self.settings.flushOnExit=True
-      # self.settings.flushAuto=False
+      # self.settings.flushAuto=False  #! implement
       self.settings.path=path
       self.settings.store_controlGC=True
       self.___store=MagicDict({
@@ -169,7 +169,8 @@ class DBStorePersistentWithCache(DBBase):
          # сохраняем в очередь все Props, а на этапе сохранения отфильтруем персистентные
          for ids, tDiff in _changes.iteritems():
             if ids not in self._flushQueue:
-               self._flushQueue[ids]=[tDiff, False, timetime(), timetime()]
+               t=timetime()
+               self._flushQueue[ids]=[tDiff, False, t, t]
             else:
                o=self._flushQueue[ids]
                if o[0]:
@@ -190,7 +191,8 @@ class DBStorePersistentWithCache(DBBase):
          # сохраняем в очередь все Props, а на этапе сохранения отфильтруем персистентные
          for ids, tDiff in _changes.iteritems():
             if ids not in self._flushQueue:
-               self._flushQueue[ids]=[tDiff, False, timetime(), timetime()]
+               t=timetime()
+               self._flushQueue[ids]=[tDiff, False, t, t]
             else:
                o=self._flushQueue[ids]
                if o[0]:
@@ -212,7 +214,8 @@ class DBStorePersistentWithCache(DBBase):
          if _skipFlushing: pass
          elif tDiff is False or tDiff=={}: pass
          elif ids not in self._flushQueue:
-            self._flushQueue[ids]=[{}, tDiff, timetime(), timetime()]
+            t=timetime()
+            self._flushQueue[ids]=[{}, tDiff, t, t]
          else:
             o=self._flushQueue[ids]
             if not isinstance(tDiff, dict) or not o[1] or not isinstance(o[1], dict): o[1]=tDiff
@@ -224,7 +227,8 @@ class DBStorePersistentWithCache(DBBase):
 
    def _saveToCache(self, ids, isExist, data, allowMerge, props, propsUpdate):
       old=isExist and self.__cache[ids]
-      if isExist and old==data: return False
+      if isExist and old==data:
+         return False
       elif data is None:
          if isExist:
             del self.__cache[ids]
@@ -233,8 +237,10 @@ class DBStorePersistentWithCache(DBBase):
          diff={}
          isEx=self._dataMerge(old, data, changed=diff, changedType='new')
          if isEx:
-            if not diff: return False
-            else: return diff
+            if not diff:
+               return False
+            else:
+               return diff
          else:
             return True
       else:
@@ -249,62 +255,66 @@ class DBStorePersistentWithCache(DBBase):
       if self._settings['flushOnExit'] and self.___store.loaded:
          self.flush(andMeta=True, andData=True, **kwargs)
 
-   def snapshot(self, needBackup=True, **kwargs):
+   #! думаю этот метод нужно переименовать, поскольку механизм снапшотов скарее всего будет добавлен в ядро
+   def snapshot(self, needBackup=True, strictMode=False, **kwargs):
       self.workspace.log(4, 'Making snapshot of DB to fs-store')
       _gcWasEnabled=self._settings['store_controlGC'] and gc.isenabled()
       if _gcWasEnabled: gc.disable()
       mytime=getms(inMS=True)
-      if needBackup:
-         filesForBackup=[]
-         for fn in ('meta', 'data'):
-            fn, fp, fExist=self._checkFileFromStore(fn)
-            if not fExist: continue
-            filesForBackup[fn]=(open, fp)
-         self._backupToStore(filesForBackup)
-      self._saveMetaToStore(**kwargs)
-      #
-      mytime2=getms(inMS=True)
-      self.workspace.log(4, 'Saving Data to fs-store')
-      propRules=self._propCompiled
-      c=0
-      fp=self._checkFileFromStore('data')[1]
-      with self._store_data_lock, open(fp, 'w') as f:
-         geventFileObject(f)
-         for ids, (props, l) in self.iterIndex(treeMode=False, calcProperties=False):
-            try:
-               _ids='\t'.join(ids)
-               data=self.__cache[ids]
-               if data is None: _data='-'
-               elif data is True: _data='@'
-               elif not data: _data=''
-               else:
-                  _data=self.workspace.server._serializeJSON(data)
-               _props={k:v for k,v in props.iteritems() if k in propRules['persistent']}
-               _props=pickle.dumps(_props, pickle.HIGHEST_PROTOCOL).encode('string_escape') if _props else ''
-               line='\n%s\n%s\n%s'%(_ids, _props, _data)
-               f.write(line)
-               c+=1
-            except Exception:
-               self.workspace.log(1, 'Error while saving %s: %s'%(ids, getErrorInfo()))
-      self.workspace.log(3, 'Saved Data to fs-store (%i items) in %ims'%(c, getms(inMS=True)-mytime2))
-      self.workspace.log(3, 'Maked snapshot of DB to fs-store in %ims'%(getms(inMS=True)-mytime))
-      if _gcWasEnabled: gc.enable()
+      try:
+         if needBackup:
+            filesForBackup=[]
+            for fn in ('meta', 'data'):
+               fn, fp, fExist=self._checkFileFromStore(fn)
+               if not fExist: continue
+               filesForBackup[fn]=(open, fp)
+            self._backupToStore(filesForBackup)
+         self._saveMetaToStore(**kwargs)
+         #
+         mytime2=getms(inMS=True)
+         self.workspace.log(4, 'Saving Data to fs-store')
+         propRules=self._propCompiled
+         c=0
+         fp=self._checkFileFromStore('data')[1]
+         with self._store_data_lock, open(fp, 'w') as f:
+            geventFileObject(f)
+            for ids, (props, l) in self.iterIndex(treeMode=False, calcProperties=False):
+               try:
+                  _ids='\t'.join(ids)
+                  data=self.__cache[ids]
+                  if data is None: _data='-'
+                  elif data is True: _data='@'
+                  elif not data: _data=''
+                  else:
+                     _data=self.workspace.server._serializeJSON(data)
+                  _props={k:v for k,v in props.iteritems() if k in propRules['persistent']}
+                  _props=pickle.dumps(_props, pickle.HIGHEST_PROTOCOL).encode('string_escape') if _props else ''
+                  line='\n%s\n%s\n%s'%(_ids, _props, _data)
+                  f.write(line)
+                  c+=1
+               except Exception:
+                  if strictMode: raise
+                  self.workspace.log(1, 'Error while saving %s: %s'%(ids, getErrorInfo()))
+         self.workspace.log(3, 'Saved Data to fs-store (%i items) in %ims'%(c, getms(inMS=True)-mytime2))
+         self.workspace.log(3, 'Maked snapshot of DB to fs-store in %ims'%(getms(inMS=True)-mytime))
+      finally:
+         if _gcWasEnabled: gc.enable()
 
    def flush(self, andMeta=True, andData=True, **kwargs):
       self.workspace.log(4, 'Saving changes to fs-store')
       _gcWasEnabled=self._settings['store_controlGC'] and gc.isenabled()
       if _gcWasEnabled: gc.disable()
       mytime=getms(inMS=True)
-      if andMeta:
-         self._saveMetaToStore(**kwargs)
-      if andData and self._flushQueue:
-         tArr=None
-         mytime2=getms(inMS=True)
-         self.workspace.log(4, 'Saving Data to fs-store')
-         propRules=self._propCompiled
-         c=0
-         fp=self._checkFileFromStore('data')[1]
-         try:
+      try:
+         if andMeta:
+            self._saveMetaToStore(**kwargs)
+         if andData and self._flushQueue:
+            tArr=None
+            mytime2=getms(inMS=True)
+            self.workspace.log(4, 'Saving Data to fs-store')
+            propRules=self._propCompiled
+            c=0
+            fp=self._checkFileFromStore('data')[1]
             with self._store_data_lock, open(fp, 'a+') as f:
                geventFileObject(f)
                tArr, self._flushQueue=self._flushQueue.copy(), {}
@@ -332,12 +342,11 @@ class DBStorePersistentWithCache(DBBase):
                   f.write(line)
                   c+=1
             self.workspace.log(3, 'Saved Data to fs-store (%i items) in %ims'%(c, getms(inMS=True)-mytime2))
-         except Exception:
-            if _gcWasEnabled: gc.enable()
-            #! here we need to dump changes (tArr and self._flushQueue) somewhere
-            raise
-      self.workspace.log(3, 'Saved changes to fs-store in %ims'%(getms(inMS=True)-mytime))
-      if _gcWasEnabled: gc.enable()
+            self.___store.writeCount+=1
+            #! on error we need to dump changes (tArr and self._flushQueue) somewhere
+         self.workspace.log(3, 'Saved changes to fs-store in %ims'%(getms(inMS=True)-mytime))
+      finally:
+         if _gcWasEnabled: gc.enable()
 
    def _saveMetaToStore(self, **kwargs):
       self.workspace.log(4, 'Saving Meta to fs-store')
