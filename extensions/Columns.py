@@ -136,7 +136,7 @@ class DBWithColumns(DBBase):
             tArr1=', '.join('"%s"'%s for s in tArr1)
             stopwatch()
             raise ColumnError('Disallowed columns %s for %s'%(tArr1, tuple(idForErr)))
-      if colNeeded and (not allowMerge or not self._findInIndex(ids, strictMode=True, calcProperties=False)[0]):
+      if colNeeded and (not allowMerge or not self._findInIndex(ids, strictMode=True, calcProperties=False, passLinkChecking=True)[0]):
          # при allowMerge и если ячейка уже существует - можно не проверять, ведь колонки уже заданы и были проверены ранее
          if dataKeys is None: dataKeys=set(data)
          stopwatch1=self.stopwatch('_checkDataColumns.colNeeded@DBWithColumns')
