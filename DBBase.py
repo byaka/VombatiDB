@@ -455,8 +455,6 @@ class DBBase(object):
       res=[None, tArr1, _root]
       if propMerger:
          propsQueue=[None]*iLast
-      if not passLinkChecking:
-         _linkQueue=deque()
       if needChain is False or needChain is None or not isinstance(needChain, list):
          needChain, _needChain=False, None
       else:
@@ -585,17 +583,18 @@ class DBBase(object):
             if _oldLink==_newLink:
                del propsUpdate['link']
             else:
-               try:
-                  badLinkChain=[]
-                  self.resolveLink(_newLink, needChain=badLinkChain.append, idsPrepared=True, needChainIsFunc=True)
-               except BadLinkError, e:
-                  # удаляем плохой линк
-                  for ids, props in reversed(badLinkChain):
-                     self.set(ids, None, existChecked=props, allowForceRemoveChilds=True)
-                  stopwatch()
-                  raise e
+               if _newLink is not None:
+                  try:
+                     badLinkChain=[]
+                     self.resolveLink(_newLink, needChain=badLinkChain.append, idsPrepared=True, needChainIsFunc=True)
+                  except BadLinkError, e:
+                     # удаляем плохой линк
+                     for ids, props in reversed(badLinkChain):
+                        self.set(ids, None, existChecked=props, allowForceRemoveChilds=True)
+                     stopwatch()
+                     raise e
+                  _backlinkAdd=True
                _backlinkDel=True
-               _backlinkAdd=True
          elif _newLink is not None:
             try:
                badLinkChain=[]
