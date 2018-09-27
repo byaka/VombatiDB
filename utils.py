@@ -18,7 +18,11 @@ sys.path.append('/var/python/libs/')
 sys.path.append('/var/python/')
 sys.path.append('/home/python/libs/')
 sys.path.append('/home/python/')
-from functionsex import *
+
+try:
+   from functionsex import *
+except ImportError:
+   from functionsEx.functionsex import *
 from gevent.lock import RLock
 
 class BaseDBError(Exception):
