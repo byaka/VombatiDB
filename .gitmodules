@@ -1,0 +1,3 @@
+[submodule "functionsEx"]
+	path = functionsEx
+	url = https://github.com/byaka/functionsEx.git
