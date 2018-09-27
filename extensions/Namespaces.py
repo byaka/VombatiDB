@@ -17,7 +17,7 @@ class NamespaceIndexError(NamespaceError):
 class DBNamespaced(DBBase):
    def _init(self, *args, **kwargs):
       res=super(DBNamespaced, self)._init(*args, **kwargs)
-      self._idBadPattern.add('?')  #! вообще здесь запрещается использовать его только первым символом, но нужна поддержка регулярных выражений или расширенная проверка с поддержкой `startswith`
+      self._idBadPattern.add(BadPatternStarts('?'))
       self.supports.namespaces=True
       self.settings.ns_checkIndexOnUpdateNS=True
       self.settings.ns_checkIndexOnConnect=True
@@ -81,7 +81,7 @@ class DBNamespaced(DBBase):
       if calcMaxIndex and calcMaxIndex is not True:
          calcMaxIndex=calcMaxIndex if isList(calcMaxIndex) else (list(calcMaxIndex) if isTuple(calcMaxIndex) else [calcMaxIndex])
          calcMaxIndex=[ns for ns in calcMaxIndex if ns in nsMap]
-      for ids, (props, l) in self.iterIndex(ids=None, recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True):
+      for ids, (props, l) in self.iterBranch(ids=None, recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True):
          tArr={}
          self._checkIdsNS(ids, nsIndexMap=tArr, props=props, childCount=l)
          if not calcMaxIndex: continue
@@ -92,7 +92,7 @@ class DBNamespaced(DBBase):
             nsiMax=nso['maxIndex']
             for nsi in iiArr:
                try: nsi=int(nsi)
-               except Exception:
+               except ValueError:
                   if nso['onlyIndexed']:
                      self.workspace.log(2, 'Incorrect index for id (%s%s)'%(ns, nsi))
                   continue
@@ -190,13 +190,14 @@ class DBNamespaced(DBBase):
          nsoNow=None
          if nsNow and nsNow in nsMap:
             nsoNow=nsMap[nsNow]
+            #! такой способ конвертации довольно дорогой. лучше в парсере пытаться отдельно извлечь цифровую группу и отдельно строковый идентификатор, и таким образом выполнять конвертацию прямо в парсере
             try: nsi=int(nsi)
-            except Exception:
+            except ValueError:
                if nsoNow['onlyIndexed']:
                   stopwatch()
                   raise NamespaceIndexError('index required for NS(%s)'%(nsNow,))
             #! поскольку у нас нет отдельного метода для добавления и отдельного для редактирования, проверка на индексы бесполезна
-            # if nsi>(nsoNow['maxIndex'] or 0):
+            # if isinstance(nsi, int) and nsi>(nsoNow['maxIndex'] or 0):
             #    stopwatch()
             #    raise NamespaceIndexError('too large value %s for NS(%s)'%(nsi, nsNow))
             if nsoNow['parent'] and (
@@ -237,7 +238,7 @@ class DBNamespaced(DBBase):
          tQueue=deque(props['backlink'])
          while tQueue:
             ids2=tQueue.pop()
-            isExist2, props2, _=self._findInIndex(ids2, strictMode=True, calcProperties=False, passLinkChecking=True)
+            isExist2, props2, _=self._findInIndex(ids2, strictMode=True, calcProperties=False, skipLinkChecking=True)
             nsPrev2=self._parseId2NS(ids2[-2])[0] if len(ids2)>1 else None
             nsoPrev2=nsMap[nsPrev2] if (nsPrev2 and nsPrev2 in nsMap) else None
             self._validateOnSetNS(ids2, data, ids2[-1], nsPrev2, nsoPrev2, nsMap, isExist=isExist2, props=props2, allowMerge=allowMerge, **kwargs)
@@ -245,10 +246,10 @@ class DBNamespaced(DBBase):
                tQueue.extend(props2['backlink'])
       # all checkings passed
       ids=tuple(ids)
-      needReplaceMaxIndex=(nsoNow and nsi and data is not None and data is not False)
+      needReplaceMaxIndex=(nsoNow and nsi and data is not None and data is not False and isinstance(nsi, int))
       stopwatch()
-      res=super(DBNamespaced, self).set(ids, data, allowMerge=allowMerge, existChecked=(isExist, props), **kwargs)
+      r=super(DBNamespaced, self).set(ids, data, allowMerge=allowMerge, existChecked=(isExist, props), **kwargs)
       # инкрементим `maxIndex` после добавления, чтобы в случае ошибки не увеличивать счетчик
-      if needReplaceMaxIndex:
+      if r is not False and needReplaceMaxIndex:
          nsoNow['maxIndex']=max(nsoNow['maxIndex'], nsi)
-      return res
+      return r

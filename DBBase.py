@@ -27,6 +27,8 @@ __version__ = "%d.%d.%d" % (__ver_major__, __ver_minor__, __ver_patch__)
    limitations under the License.
 """
 
+#? баблинг Props сквозь ссылки (sprout)
+
 class DBBase(object):
    def __init__(self, workspace, *args, **kwargs):
       self.version=__version__
@@ -37,8 +39,8 @@ class DBBase(object):
       self._speedStatsMax=defaultdict(int)
       self.settings=self._settings=MagicDictCold({})
       self.supports=self._supports=MagicDictCold({})
-      self._propMap={}
-      self._propCompiled={
+      self.__propMap={}
+      self.__propCompiled={
          'inheritCBMap':{},
          'bubble':set(), 'bubbleCBMap':{},
          'needed':set(),
@@ -48,23 +50,23 @@ class DBBase(object):
          'mergerBubble':None,
          'mergerInherit':None,
       }
-      self._propCompiled['mergerBubble']=bind(dictMergeEx, {
+      self.__propCompiled['mergerBubble']=bind(dictMergeEx, {
          'modify':True,
          'recursive':False,
-         'cbMap':self._propCompiled['bubbleCBMap'],
+         'cbMap':self.__propCompiled['bubbleCBMap'],
          'cbPassKey':True,
          'cbSkipIfNewKey':False,
-         'filterKeys':self._propCompiled['bubble'],
+         'filterKeys':self.__propCompiled['bubble'],
          'isBlacklist':False,
          'changedCBPassValues':1,
       })
-      self._propCompiled['mergerInherit']=bind(dictMergeEx, {
+      self.__propCompiled['mergerInherit']=bind(dictMergeEx, {
          'modify':True,
          'recursive':False,
-         'cbMap':self._propCompiled['inheritCBMap'],
+         'cbMap':self.__propCompiled['inheritCBMap'],
          'cbPassKey':True,
          'cbSkipIfNewKey':False,
-         'filterKeys':self._propCompiled['inheritCBMap'],
+         'filterKeys':self.__propCompiled['inheritCBMap'],
          'isBlacklist':False,
          'changedCBPassValues':1,
       })
@@ -80,21 +82,23 @@ class DBBase(object):
          'prop_link':True, 'prop_backlink':True,
       }
       self._idBadPattern=set()
-      # self._branchLock={}
+      # self._branchLock=defaultdict(RLock)
       #
       kwargs2=self._init(*args, **kwargs)
       kwargs2=kwargs2 if isDict(kwargs2) else {}
       self._inited(**kwargs2)
 
    def _init(self, *args, **kwargs):
+      self._idBadPattern.add('\n')
+      #
       self._regProp('link', persistent=True)
       self._regProp('backlink', persistent=True)
       #
       for k, v in self.__supportsDefault.iteritems():
          self.supports.setdefault(k, v)
       #
-      self.settings.iterIndex_soLong=0.3
-      self.settings.iterIndex_sleepTime=0.000001  # not null, becouse this allows to switch to another io-ready greenlet
+      self.settings.iterBranch_soLong=0.3  # this tries to switch context while exec `iterBranch(safeMode=True)`
+      self.settings.iterBranch_sleepTime=0.000001  # not null, becouse this allows to switch to another io-ready greenlet
       self.settings.randomEx_soLong=0.05
       self.settings.randomEx_maxAttempts=9
       self.settings.randomEx_sleepTime=0.001
@@ -112,16 +116,47 @@ class DBBase(object):
       self._reset()
 
    def _compileIdBadPatterns(self):
-      code=['def RUN(data):']
+      conds=[]
+      codeAfter=[]
       _tab=' '*3
+      reIndex=1
       for o in self._idBadPattern:
          if isinstance(o, (str, unicode)):
             if '"' in o:
                o=re.sub(r'(?<!\\)"','\\"', o)
-            code.append(_tab+'if "%s" in data: return True'%o)
+            if '\n' in o:
+               o=re.sub(r'(?<!\\)\n','\\\\n', o)
+            conds.append((1, 'if "%s" in data: return True'%o))
+         elif isinstance(o, (BadPatternStarts, BadPatternEnds)):
+            v=o.value
+            l=len(v)
+            if '"' in v:
+               v=re.sub(r'(?<!\\)"','\\"', v)
+            if '\n' in v:
+               v=re.sub(r'(?<!\\)\n','\\\\n', v)
+            if l==1:
+               c, s=0, '0' if isinstance(o, BadPatternStarts) else '-1'
+            else:
+               c, s=3, ':%i'%l if isinstance(o, BadPatternStarts) else '-%i:'%l
+            conds.append((c, 'if data[%s]=="%s": return True'%(s, v)))
+         elif isinstance(o, (BadPatternREMatch, BadPatternRESearch)):
+            n='RUN._re%i'%reIndex
+            m='match' if isinstance(o, BadPatternREMatch) else 'search'
+            codeAfter.append('%s=re.compile(r"%s", %i).%s'%(n, o.value, o.flags, m))
+            conds.append((5, 'if %s(data) is not None: return True'%n))
+            reIndex+=1
          else:
             raise ValueError('Incorrect bad-pattern for id: %s'%(o,))
+      conds.sort(key=lambda o: o[0])  # sort checkings by complexity
+      code=['import re', 'def RUN(data):']
+      for o in conds:
+         if isinstance(o[1], (tuple, list)):
+            s=''.join(_tab+oo for oo in o[1])
+            code.append(s)
+         else:
+            code.append(_tab+o[1])
       code.append(_tab+'return False')
+      code+=codeAfter
       code='\n'.join(code)
       code=compile(code, 'idBadPattern', 'exec')
       tEnv={}
@@ -130,6 +165,7 @@ class DBBase(object):
 
    def stopwatch(self, name):
       mytime=timetime()
+      #? проверить, что быстрее - создание этой функции в рантайме или использование `bind()`
       def tFunc(mytime=mytime, name=name, self=self):
          val=timetime()-mytime
          self._speedStats[name].append(val)
@@ -155,51 +191,52 @@ class DBBase(object):
          res['speedstatsFlat'][name]=tuple(res['speedstatsFlat'][name][i]+s if i else max(res['speedstatsFlat'][name][i], s) for i,s in enumerate(val))
       return res
 
+   def getProps(self):
+      return copy.deepcopy(self.__propMap), copy.deepcopy(self.__propCompiled)
+
    def _regProp(self, name, default=None, inherit=False, needed=False, bubble=False, persistent=False):
-      assert isStr(name), 'Name must be string'
       if self.inited:
-         raise RuntimeError('Registering of property not allowed, when DB inited')
-      if name in self._propMap:
+         raise RuntimeError('Registering of property not allowed, when DB already inited')
+      assert isStr(name), 'Name must be string'
+      if name in self.__propMap:
          raise ValueError('Property with this name already registered')
-      o=MagicDictCold({'name':name, 'default':default, 'inherit':inherit, 'needed':needed, 'bubble':bubble, 'persistent':persistent})
-      self._propMap[name]=o
-      if o.default is not None:
-         self._propCompiled['default'][name]=o.default
-      if o.inherit:
-         self._propCompiled['inheritCBMap'][name]=self._convPropCB_inherit(o)
-      if o.bubble:
-         self._propCompiled['bubble'].add(name)
-         if isFunction(o.bubble):
-            self._propCompiled['bubbleCBMap'][name]=o.bubble
-      if o.needed:
-         self._propCompiled['needed'].add(name)
-      if o.persistent:
-         self._propCompiled['persistent'].add(name)
-      o._MagicDictCold__freeze()
+      o=self.__propMap[name]={'name':name, 'default':default, 'inherit':inherit, 'needed':needed, 'bubble':bubble, 'persistent':persistent}
+      if o['default'] is not None:
+         self.__propCompiled['default'][name]=o['default']
+      if o['inherit']:
+         self.__propCompiled['inheritCBMap'][name]=self._convPropCB_inherit(o)
+      if o['bubble']:
+         self.__propCompiled['bubble'].add(name)
+         if isFunction(o['bubble']):
+            self.__propCompiled['bubbleCBMap'][name]=o['bubble']
+      if o['needed']:
+         self.__propCompiled['needed'].add(name)
+      if o['persistent']:
+         self.__propCompiled['persistent'].add(name)
       # compiling defaultMinimalProps
-      self._propCompiled['defaultMinimalProps']={}
-      for k in set(itertools.chain(self._propCompiled['needed'], self._propCompiled['default'])):
-         if k in self._propCompiled['needed'] and k not in self._propCompiled['default']: break
-         self._propCompiled['defaultMinimalProps'][k]=self._propCompiled['default'][k]
+      self.__propCompiled['defaultMinimalProps']={}
+      for k in set(itertools.chain(self.__propCompiled['needed'], self.__propCompiled['default'])):
+         if k in self.__propCompiled['needed'] and k not in self.__propCompiled['default']: break
+         self.__propCompiled['defaultMinimalProps'][k]=self.__propCompiled['default'][k]
       else:
-         self._propCompiled['defaultMinimalProps']=None
+         self.__propCompiled['defaultMinimalProps']=None
 
    def _convPropCB_inherit(self, o):
-      f=o.inherit
+      f=o['inherit']
       if f is True:
-         o.inheritCB=lambda k, vSelf, vParrent, ids: vParrent
+         o['inheritCB']=lambda k, vSelf, vParrent, ids: vParrent
       elif f=='and' or f=='and+':
-         o.inheritCB=lambda k, vSelf, vParrent, ids: vParrent and vSelf
+         o['inheritCB']=lambda k, vSelf, vParrent, ids: vParrent and vSelf
       elif f=='+and':
-         o.inheritCB=lambda k, vSelf, vParrent, ids: vSelf and vParrent
+         o['inheritCB']=lambda k, vSelf, vParrent, ids: vSelf and vParrent
       elif f=='or' or f=='or+':
-         o.inheritCB=lambda k, vSelf, vParrent, ids: vParrent or vSelf
+         o['inheritCB']=lambda k, vSelf, vParrent, ids: vParrent or vSelf
       elif f=='+or':
-         o.inheritCB=lambda k, vSelf, vParrent, ids: vSelf or vParrent
-      elif isFunction(f): o.inheritCB=f
+         o['inheritCB']=lambda k, vSelf, vParrent, ids: vSelf or vParrent
+      elif isFunction(f): o['inheritCB']=f
       else:
-         raise ValueError('Unsupported value for inherit-callback of Property "%s": %r'%(o.name, f))
-      return o.inheritCB
+         raise ValueError('Unsupported value for inherit-callback of Property "%s": %r'%(o['name'], f))
+      return o['inheritCB']
 
    @classmethod
    def _prepIds(cls, ids):
@@ -215,11 +252,15 @@ class DBBase(object):
       stopwatch()
       return ids, isExist, props
 
-   def isExist(self, ids):
+   def isExist(self, ids, andLink=False):
       try:
-         return self.checkIds(ids)[1]
-      except BadLinkError:
-         return False
+         ids, isExist, props=self.checkIds(ids, calcProperties=False)
+         if andLink:
+            return (isExist, self.isLink(props, calcProperties=False))
+         else:
+            return isExist
+      except (BadLinkError, StrictModeError):
+         return (False, None) if andLink else False
 
    def resolveLink(self, ids, needChain=False, idsPrepared=False, needChainIsFunc=False):
       stopwatch=self.stopwatch('resolveLink@DBBase')
@@ -300,7 +341,7 @@ class DBBase(object):
    def _markInIndex(self, ids, strictMode=True, _changes=None, **props):
       stopwatch=self.stopwatch('_markInIndex@DBBase')
       iLast=len(ids)-1
-      propRules=self._propCompiled
+      propRules=self.__propCompiled
       propMerger=propRules['mergerBubble'] if propRules['bubble'] else False
       for k in propRules['needed']:
          if k in props: continue
@@ -356,7 +397,7 @@ class DBBase(object):
    def _unmarkInIndex(self, ids, _changes=None, **props):
       stopwatch=self.stopwatch('_unmarkInIndex@DBBase')
       iLast=len(ids)-1
-      propRules=self._propCompiled
+      propRules=self.__propCompiled
       propMerger=propRules['mergerBubble'] if propRules['bubble'] else False
       if _changes is None or _changes is False or not isinstance(_changes, dict): _changes=None
       branch=self.__index
@@ -381,16 +422,16 @@ class DBBase(object):
       stopwatch()
       return True
 
-   def iterIndex(self, ids=None, recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True, passLinkChecking=False):
+   def iterBranch(self, ids=None, recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True, skipLinkChecking=False):
       mytime=timetime()
-      _soLong=self._settings['iterIndex_soLong']
-      _sleepTime=self._settings['iterIndex_sleepTime']
+      _soLong=self._settings['iterBranch_soLong']
+      _sleepTime=self._settings['iterBranch_sleepTime']
       _sleep=self.workspace.server._sleep
       _timetime=timetime
       _len=len
       _iter=iter
       _resolveLink=self.resolveLink
-      propRules=self._propCompiled
+      propRules=self.__propCompiled
       propMerger=propRules['mergerInherit'] if calcProperties and propRules['inheritCBMap'] else False
       if ids is not None:
          # searching enter-point and calc props if needed
@@ -418,7 +459,7 @@ class DBBase(object):
             if id not in branchParrent: continue
             propsCurrent, branchCurrent=branchParrent[id]
             # validating link's target
-            if not passLinkChecking and 'link' in propsCurrent and propsCurrent['link']:
+            if not skipLinkChecking and 'link' in propsCurrent and propsCurrent['link']:
                _resolveLink(propsCurrent['link'], idsPrepared=True)
             ids2=ids+(id,)
             # and now we inherit props if needed
@@ -441,12 +482,12 @@ class DBBase(object):
             else:
                _tQueueAppend((ids2, iterCurrent, branchCurrent, propsCurrent))
 
-   def _findInIndex(self, ids, strictMode=False, calcProperties=True, offsetLast=False, needChain=None, passLinkChecking=False):
+   def _findInIndex(self, ids, strictMode=False, calcProperties=True, offsetLast=False, needChain=None, skipLinkChecking=False):
       # поиск обьекта в индексе и проверка, существует ли вся его иерархия
       _stopwatch=self.stopwatch
-      stopwatch=_stopwatch('_findInIndex%s%s@DBBase'%('-calcProps' if calcProperties else '', '-noLinkCheck' if passLinkChecking else ''))
+      stopwatch=_stopwatch('_findInIndex%s%s@DBBase'%('-calcProps' if calcProperties else '', '-noLinkCheck' if skipLinkChecking else ''))
       iLast=len(ids)-1
-      propRules=self._propCompiled
+      propRules=self.__propCompiled
       propMerger=propRules['mergerInherit'] if calcProperties and propRules['inheritCBMap'] else False
       if propMerger and propRules['defaultMinimalProps'] is not None:
          tArr1=propRules['defaultMinimalProps'].copy()
@@ -480,7 +521,7 @@ class DBBase(object):
          res[0]=True
          propsCurrent, res[2]=res[2][id]
          # validating link's target
-         if not passLinkChecking and 'link' in propsCurrent and propsCurrent['link']:
+         if not skipLinkChecking and 'link' in propsCurrent and propsCurrent['link']:
             self.resolveLink(propsCurrent['link'], needChain=_needChain, idsPrepared=True, needChainIsFunc=True)
          # and now we inherit props if needed
          if propMerger:
@@ -577,6 +618,7 @@ class DBBase(object):
       #
       _backlinkDel, _oldLink, _backlinkAdd, _newLink=False, None, False, None
       if 'link' in propsUpdate:
+         stopwatch1=self.stopwatch('set.fixLink@DBBase')
          _newLink=propsUpdate['link']
          if 'link' in props and props['link']:
             _oldLink=props['link']
@@ -591,6 +633,7 @@ class DBBase(object):
                      # удаляем плохой линк
                      for ids, props in reversed(badLinkChain):
                         self.set(ids, None, existChecked=props, allowForceRemoveChilds=True)
+                     stopwatch1()
                      stopwatch()
                      raise e
                   _backlinkAdd=True
@@ -603,9 +646,11 @@ class DBBase(object):
                # удаляем плохой линк
                for ids, props in reversed(badLinkChain):
                   self.set(ids, None, existChecked=props, allowForceRemoveChilds=True)
+               stopwatch1()
                stopwatch()
                raise e
             _backlinkAdd=True
+         stopwatch1()
       #
       isExist, data, allowMerge=self._validateOnSet(ids, data, isExist=isExist, props=props, allowMerge=allowMerge, propsUpdate=propsUpdate)
       if data is None and not isExist:
@@ -616,11 +661,12 @@ class DBBase(object):
          self._set(tArr, **kwargs)
       if data is None:
          if self._settings['force_removeChilds'] and allowForceRemoveChilds:
+            stopwatch1=self.stopwatch('set.removeChilds@DBBase')
             cNeedProps=self._settings['force_removeChilds_calcProps']
             _backlinkDelMap=defaultdict(list)
             _backlinkIgnoreMap=set()
             # принудительно удаляем детей, чтобы избежать конфликта при повторном использовании техже имен
-            for idsC, (propsC, l) in self.iterIndex(ids=ids, recursive=True, treeMode=False, safeMode=True, calcProperties=cNeedProps):
+            for idsC, (propsC, l) in self.iterBranch(ids=ids, recursive=True, treeMode=False, safeMode=True, calcProperties=cNeedProps):
                tArr=((idsC, (True, None, False, propsC, {})),)
                self._set(tArr, **kwargs)
                if 'link' in propsC and propsC['link'] and propsC['link'] not in _backlinkIgnoreMap:
@@ -633,6 +679,7 @@ class DBBase(object):
                tArr=self._findInIndex(ids1, strictMode=True, calcProperties=False)[1]['backlink']
                for s in tArr1: tArr.remove(s)
                self._markInIndex(ids1, backlink=tArr)
+            stopwatch1()
          self._unmarkInIndex(ids, **propsUpdate)
       elif not isExist or propsUpdate:
          self._markInIndex(ids, **propsUpdate)
@@ -656,7 +703,7 @@ class DBBase(object):
       stopwatch=self.stopwatch('get@DBBase')
       ids=self._prepIds(ids)
       if ids[-1] is None:
-         # this case allowed by `_findInIndex()` so we need to chek it manually
+         # this case allowed by `_findInIndex()` so we need to check it manually
          raise ValueError('Incorrect IDS: %s'%(ids,))
       # если вызывающий хочет пропустить проверку `self._findInIndex()`, нужно передать в `existChecked`, высчитанные `properties` (в таком случае будет считаться, что обьект существует) илиже `(isExist, properties)` если нужно указать непосредственный статус `isExist`
       try:
@@ -696,10 +743,27 @@ class DBBase(object):
       self._reset()
 
    def close(self, *args, **kwargs):
+      if getattr(self, '_destroyed', False): return
       self.workspace.log(4, 'Closing db')
+      self._close(*args, **kwargs)
+      #
+      def tFunc(*args, **kwargs):
+         self.workspace.log(2, 'DB already closed')
+      for k in dir(self):
+         if k.startswith('__') and k.endswith('__'): continue
+         if k=='close' or k=='workspace': continue
+         o=getattr(self, k)
+         if o is None: continue
+         if isinstance(o, (types.FunctionType, types.MethodType)): o=tFunc
+         else: o=None
+         setattr(self, k, o)
+      self._destroyed=True
+
+   def _close(self, *args, **kwargs):
+      pass
 
    def __enter__(self):
       return self
 
-   def __exit__(self):
+   def __exit__(self, *err):
       self.close()

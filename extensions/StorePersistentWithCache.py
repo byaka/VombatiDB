@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 from ..utils import *
 from ..DBBase import DBBase
-from gevent.lock import RLock
 from gevent.fileobject import FileObjectThread as geventFileObject
 import gc
 
@@ -28,9 +27,9 @@ class DBStorePersistentWithCache(DBBase):
          'loaded':False,
          'writeCount':0,
       })
-      self._store_data_lock=RLock()
-      self._store_meta_lock=RLock()
-      self._flushQueue={}
+      self.__data_lock=RLock()
+      self.__meta_lock=RLock()
+      self.__flushQueue={}
       return super(DBStorePersistentWithCache, self)._init(*args, **kwargs)
 
    def _reset(self, *args, **kwargs):
@@ -140,8 +139,7 @@ class DBStorePersistentWithCache(DBBase):
                         allowMerge, data=False, True
                      else:
                         allowMerge, data=(True, line[1:]) if line and line[0]=='+' else (False, line)
-                        data=self.workspace.server._parseJSON(data) if data else {}
-                        if allowMerge and data=={}: continue
+                        data=pickle.loads(data.decode('string_escape')) if data else {}
                      tArr=((ids, (isExist, data, allowMerge, props, {})),)
                      self._set(tArr, _skipFlushing=True)
                   #
@@ -152,27 +150,20 @@ class DBStorePersistentWithCache(DBBase):
       toRemove[fn]=True
       return 1
 
-   def _dataFileFind(self):
-      ptrn=re.compile(r"[0-9]+([.]{0,1}[0-9]*)\.json", re.U).match
-      files=os.listdir(self._settings['path'])
-      files=[float(f[:-5]) for f in files if ptrn(f)]
-      files=sorted(files)
-      return files
-
-   def _markInIndex(self, ids, _changes=None, _skipFlushing=False, **kwargs):
+   def _markInIndex(self, ids, _changes=None, _skipFlushing=False, **props):
       if _changes is not None:
          raise NotImplementedError
       _changes={} if not _skipFlushing else None
-      r=super(DBStorePersistentWithCache, self)._markInIndex(ids, _changes=_changes, **kwargs)
+      r=super(DBStorePersistentWithCache, self)._markInIndex(ids, _changes=_changes, **props)
       if _changes:
          stopwatch=self.stopwatch('_markInIndex@DBStorePersistentWithCache')
          # сохраняем в очередь все Props, а на этапе сохранения отфильтруем персистентные
          for ids, tDiff in _changes.iteritems():
-            if ids not in self._flushQueue:
+            if ids not in self.__flushQueue:
                t=timetime()
-               self._flushQueue[ids]=[tDiff, False, t, t]
+               self.__flushQueue[ids]=[tDiff, False, t, t]
             else:
-               o=self._flushQueue[ids]
+               o=self.__flushQueue[ids]
                if o[0]:
                   o[0].update(tDiff)
                else:
@@ -190,11 +181,11 @@ class DBStorePersistentWithCache(DBBase):
          stopwatch=self.stopwatch('_unmarkInIndex@DBStorePersistentWithCache')
          # сохраняем в очередь все Props, а на этапе сохранения отфильтруем персистентные
          for ids, tDiff in _changes.iteritems():
-            if ids not in self._flushQueue:
+            if ids not in self.__flushQueue:
                t=timetime()
-               self._flushQueue[ids]=[tDiff, False, t, t]
+               self.__flushQueue[ids]=[tDiff, False, t, t]
             else:
-               o=self._flushQueue[ids]
+               o=self.__flushQueue[ids]
                if o[0]:
                   o[0].update(tDiff)
                else:
@@ -212,13 +203,18 @@ class DBStorePersistentWithCache(DBBase):
             raise ValueError('Incorrect format for %s'%(ids,))
          tDiff=changes[ids]=self._saveToCache(ids, isExist, data, allowMerge, props, propsUpdate)
          if _skipFlushing: pass
-         elif tDiff is False or tDiff=={}: pass
-         elif ids not in self._flushQueue:
+         elif tDiff is None and ids in self.__flushQueue:
+            o=self.__flushQueue[ids]
+            o[0], o[1], o[-1]=None, None, timetime()
+         elif not tDiff: pass
+         elif ids not in self.__flushQueue:
             t=timetime()
-            self._flushQueue[ids]=[{}, tDiff, t, t]
+            self.__flushQueue[ids]=[{}, tDiff, t, t]
          else:
-            o=self._flushQueue[ids]
-            if not isinstance(tDiff, dict) or not o[1] or not isinstance(o[1], dict): o[1]=tDiff
+            o=self.__flushQueue[ids]
+            if not isinstance(tDiff, dict) or not o[1] or (o[1] is not True and not isinstance(o[1], dict)): o[1]=tDiff
+            elif o[1] is True:
+               o[1]=self.__cache[ids]
             else:
                o[1].update(tDiff)
             o[-1]=timetime()
@@ -250,8 +246,8 @@ class DBStorePersistentWithCache(DBBase):
    def _get(self, ids, props, **kwargs):
       return self.__cache[ids]
 
-   def close(self, *args, **kwargs):
-      super(DBStorePersistentWithCache, self).close(*args, **kwargs)
+   def _close(self, *args, **kwargs):
+      super(DBStorePersistentWithCache, self)._close(*args, **kwargs)
       if self._settings['flushOnExit'] and self.___store.loaded:
          self.flush(andMeta=True, andData=True, **kwargs)
 
@@ -273,12 +269,12 @@ class DBStorePersistentWithCache(DBBase):
          #
          mytime2=getms(inMS=True)
          self.workspace.log(4, 'Saving Data to fs-store')
-         propRules=self._propCompiled
+         propRules=self.getProps()[1]
          c=0
          fp=self._checkFileFromStore('data')[1]
-         with self._store_data_lock, open(fp, 'w') as f:
+         with self.__data_lock, open(fp, 'w') as f:
             geventFileObject(f)
-            for ids, (props, l) in self.iterIndex(treeMode=False, calcProperties=False):
+            for ids, (props, l) in self.iterBranch(treeMode=False, calcProperties=False):
                try:
                   _ids='\t'.join(ids)
                   data=self.__cache[ids]
@@ -286,7 +282,7 @@ class DBStorePersistentWithCache(DBBase):
                   elif data is True: _data='@'
                   elif not data: _data=''
                   else:
-                     _data=self.workspace.server._serializeJSON(data)
+                     _data=pickle.dumps(data, pickle.HIGHEST_PROTOCOL).encode('string_escape')
                   _props={k:v for k,v in props.iteritems() if k in propRules['persistent']}
                   _props=pickle.dumps(_props, pickle.HIGHEST_PROTOCOL).encode('string_escape') if _props else ''
                   line='\n%s\n%s\n%s'%(_ids, _props, _data)
@@ -308,28 +304,28 @@ class DBStorePersistentWithCache(DBBase):
       try:
          if andMeta:
             self._saveMetaToStore(**kwargs)
-         if andData and self._flushQueue:
+         if andData and self.__flushQueue:
             tArr=None
             mytime2=getms(inMS=True)
             self.workspace.log(4, 'Saving Data to fs-store')
-            propRules=self._propCompiled
+            propRules=self.getProps()[1]
             c=0
             fp=self._checkFileFromStore('data')[1]
-            with self._store_data_lock, open(fp, 'a+') as f:
+            with self.__data_lock, open(fp, 'a+') as f:
                geventFileObject(f)
-               tArr, self._flushQueue=self._flushQueue.copy(), {}
+               tArr, self.__flushQueue=self.__flushQueue.copy(), {}
                for ids, (propDiff, dataDiff, timeC, timeM) in tArr.iteritems():
                   if dataDiff is None: _data='-'
                   elif not dataDiff: _data='+'
                   elif isinstance(dataDiff, dict):
-                     _data='+'+self.workspace.server._serializeJSON(dataDiff)
+                     _data='+'+pickle.dumps(dataDiff, pickle.HIGHEST_PROTOCOL).encode('string_escape')
                   elif dataDiff is True:
                      data=self.__cache[ids]
                      if data is None: _data='-'
                      elif data is True: _data='@'
                      elif not data: _data=''
                      else:
-                        _data=self.workspace.server._serializeJSON(data)
+                        _data=pickle.dumps(data, pickle.HIGHEST_PROTOCOL).encode('string_escape')
                   #
                   if not propDiff: _props=''
                   else:
@@ -343,7 +339,7 @@ class DBStorePersistentWithCache(DBBase):
                   c+=1
             self.workspace.log(3, 'Saved Data to fs-store (%i items) in %ims'%(c, getms(inMS=True)-mytime2))
             self.___store.writeCount+=1
-            #! on error we need to dump changes (tArr and self._flushQueue) somewhere
+            #! on error we need to dump changes (tArr and self.__flushQueue) somewhere
          self.workspace.log(3, 'Saved changes to fs-store in %ims'%(getms(inMS=True)-mytime))
       finally:
          if _gcWasEnabled: gc.enable()
@@ -352,7 +348,7 @@ class DBStorePersistentWithCache(DBBase):
       self.workspace.log(4, 'Saving Meta to fs-store')
       mytime=getms(inMS=True)
       fp=self._checkFileFromStore('meta')[1]
-      with self._store_meta_lock:
+      with self.__meta_lock:
          data=self._dumpMeta()
          self.workspace.log(3, 'Dumped meta in %ims'%(getms(inMS=True)-mytime))
          self.workspace.server._fileWrite(fp, data, mode='w', silent=False, buffer=0)

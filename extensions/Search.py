@@ -2,13 +2,6 @@
 from ..utils import *
 from ..DBBase import DBBase
 
-try:
-   #~ если эта библиотека еще гдето понадобится, нужно перенести ее в `utils.py` и возможно добавить упрощенную встроенную реализацию
-   from lru import LRU as lruDict
-except ImportError:
-   global lruDict
-   lruDict=False
-
 def __init():
    return DBSearch_simple, ('Search', 'Query')
 
@@ -24,15 +17,17 @@ class DBSearch_simple(DBBase):
       self.query_pattern_clear_indent2=re.compile(r'^', re.MULTILINE)
       self.query_pattern_globalsRepared='__GLOBALS_REPARED'
       self.query_envName='<DBSearch_simple.query>'
-      self.settings.queryCache=1000
-      self._queryCache=None
+      self.settings.search_queryCache=1000
+      self.supports.query=True
+      self.supports.search_simple=True
+      self.__queryCache=None
       return res
 
    def _connect(self, **kwargs):
-      if lruDict and self._settings['queryCache']:
-         self._queryCache=lruDict(self._settings['queryCache'])
+      if lruDict and self._settings['search_queryCache']:
+         self.__queryCache=lruDict(self._settings['search_queryCache'])
       else:
-         self._queryCache=None
+         self.__queryCache=None
       return super(DBSearch_simple, self)._connect(**kwargs)
 
    def query(self, what=None, branch=None, where=None, limit=None, pre=None, recursive=True, returnRaw=False, calcProperties=True, env=None, q=None, checkIsEmpty=True, allowCache=True):
@@ -82,9 +77,9 @@ class DBSearch_simple(DBBase):
          raise ValueError('Incorrect type for `pre` arg')
       #
       qId=(branch, where, what, limit, recursive, returnRaw, calcProperties)
-      if allowCache and self._queryCache is not None and qId in self._queryCache:
+      if allowCache and self.__queryCache is not None and qId in self.__queryCache:
          stopwatch()
-         return self._queryCache[qId]
+         return self.__queryCache[qId]
       #
       qRaw=repr({
          'what':what,
@@ -119,7 +114,7 @@ class DBSearch_simple(DBBase):
             _MagicDict=MagicDict
             _StrictModeError=StrictModeError
             c=0
-            g=DB.iterIndex(%s, recursive=%s, calcProperties=%s, treeMode=False, safeMode=True)
+            g=DB.iterBranch(%s, recursive=%s, calcProperties=%s, treeMode=False, safeMode=True)
             for IDS, (PROPS, CHILDS) in g:
                ID=IDS[-1]"""%(branch, recursive, calcProperties)]
       _code=code.append
@@ -159,7 +154,7 @@ class DBSearch_simple(DBBase):
          code+='\nRUN.source="""%s"""'%code
          code=compile(code, self.query_envName, 'exec')
       if allowCache:
-         self._queryCache[qId]=code
+         self.__queryCache[qId]=code
       stopwatch()
       return code
 
