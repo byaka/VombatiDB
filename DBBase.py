@@ -422,6 +422,55 @@ class DBBase(object):
       stopwatch()
       return True
 
+   def iterBacklink(self, ids, props=None, recursive=True, treeMode=True, safeMode=True, calcProperties=True, strictMode=True):
+      mytime=timetime()
+      if props is None:
+         isExist, props, _=self._findInIndex(ids, strictMode=True, calcProperties=calcProperties)
+         if not isExist:
+            if strictMode:
+               raise NotExistError(ids)
+            else:
+               raise StopIteration
+      if not props or 'backlink' not in props or not props['backlink']:
+         raise StopIteration
+      _soLong=self._settings['iterBranch_soLong']
+      _sleepTime=self._settings['iterBranch_sleepTime']
+      _sleep=self.workspace.server._sleep
+      _timetime=timetime
+      _len=len
+      _iter=iter
+      backlink=props['backlink']
+      queue=deque(((_iter(backlink.copy() if safeMode else backlink), backlink),))
+      _queueAppend=queue.append
+      _queuePop=queue.pop
+      while queue:
+         iterBacklink, backlink=_queuePop()
+         for ids in iterBacklink:
+            if _soLong and _timetime()-mytime>=_soLong:
+               _sleep(_sleepTime)
+               mytime=_timetime()
+            if safeMode and ids not in backlink: continue
+            isExist, propsCurrent, branchCurrent=self._findInIndex(ids, strictMode=True, calcProperties=calcProperties)
+            if not isExist:
+               if strictMode:
+                  raise NotExistError(ids)
+               else:
+                  continue
+            extCmd=yield ids, (propsCurrent, _len(branchCurrent))
+            if extCmd is not None:
+               yield  # this allows to use our generator inside `for .. in ..` without skipping on `send`
+               if extCmd is False: continue
+            if not recursive: continue
+            if not propsCurrent or 'backlink' not in propsCurrent or not propsCurrent['backlink']: continue
+            backlinkCurrent=propsCurrent['backlink']
+            iterBacklinkCurrent=_iter(backlinkCurrent.copy() if safeMode else backlinkCurrent)
+            if treeMode:
+               _queueAppend((iterBacklink, backlink))
+               _queueAppend((iterBacklinkCurrent, backlinkCurrent))
+               break
+            else:
+               _queueAppend((iterBacklinkCurrent, backlinkCurrent))
+
    def iterBranch(self, ids=None, recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True, skipLinkChecking=False):
       mytime=timetime()
       _soLong=self._settings['iterBranch_soLong']
@@ -447,11 +496,11 @@ class DBBase(object):
       # iterating
       if not branchCurrent:
          raise StopIteration
-      tQueue=deque(((ids, _iter(branchCurrent.keys()) if safeMode else branchCurrent.iterkeys(), branchCurrent, propsPre),))
-      _tQueueAppend=tQueue.append
-      _tQueuePop=tQueue.pop
-      while tQueue:
-         ids, iterParrent, branchParrent, propsParrent=_tQueuePop()
+      queue=deque(((ids, _iter(branchCurrent.keys()) if safeMode else branchCurrent.iterkeys(), branchCurrent, propsPre),))
+      _queueAppend=queue.append
+      _queuePop=queue.pop
+      while queue:
+         ids, iterParrent, branchParrent, propsParrent=_queuePop()
          for id in iterParrent:
             if _soLong and _timetime()-mytime>=_soLong:
                _sleep(_sleepTime)
@@ -476,11 +525,11 @@ class DBBase(object):
             if not _len(branchCurrent): continue
             iterCurrent=_iter(branchCurrent.keys()) if safeMode else branchCurrent.iterkeys()
             if treeMode:
-               _tQueueAppend((ids, iterParrent, branchParrent, propsParrent))
-               _tQueueAppend((ids2, iterCurrent, branchCurrent, propsCurrent))
+               _queueAppend((ids, iterParrent, branchParrent, propsParrent))
+               _queueAppend((ids2, iterCurrent, branchCurrent, propsCurrent))
                break
             else:
-               _tQueueAppend((ids2, iterCurrent, branchCurrent, propsCurrent))
+               _queueAppend((ids2, iterCurrent, branchCurrent, propsCurrent))
 
    def _findInIndex(self, ids, strictMode=False, calcProperties=True, offsetLast=False, needChain=None, skipLinkChecking=False):
       # поиск обьекта в индексе и проверка, существует ли вся его иерархия
@@ -689,14 +738,18 @@ class DBBase(object):
          self._markInIndex(ids, **propsUpdate)
       # updating back-link
       if _backlinkAdd:
+         stopwatch1=self.stopwatch('set.backlinkAdd@DBBase')
          tArr=self._findInIndex(_newLink, strictMode=True, calcProperties=False)[1]
          tArr=tArr['backlink'] if 'backlink' in tArr else set()
          tArr.add(ids)
          self._markInIndex(_newLink, backlink=tArr)
+         stopwatch1()
       if _backlinkDel:
+         stopwatch1=self.stopwatch('set.backlinkDel@DBBase')
          tArr=self._findInIndex(_oldLink, strictMode=True, calcProperties=False)[1]['backlink']
          tArr.remove(ids)
          self._markInIndex(_oldLink, backlink=tArr)
+         stopwatch1()
       stopwatch()
       return ids
 
