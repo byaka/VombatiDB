@@ -213,7 +213,7 @@ class DBNamespaced(DBBase):
          stopwatch()
          return nsNow, nsi, nsoNow
 
-   def set(self, ids, data, allowMerge=True, existChecked=None, **kwargs):
+   def set(self, ids, data, allowMerge=True, existChecked=None, onlyIfExist=None, strictMode=False, **kwargs):
       stopwatch=self.stopwatch('set@DBNamespaced')
       ids=ids if isinstance(ids, list) else(list(ids) if isinstance(ids, tuple) else [ids])
       lastId=ids[-1]
@@ -229,6 +229,10 @@ class DBNamespaced(DBBase):
             isExist, props, _=self._findInIndex(ids, strictMode=True)
          else:
             isExist, props=existChecked if isinstance(existChecked, tuple) else (True, existChecked)
+         if onlyIfExist is not None and isExist!=onlyIfExist:
+            if strictMode:
+               raise ExistStatusMismatchError('expected "isExist=%s" for %s'%(onlyIfExist, ids))
+            return None
       nsPrev=self._parseId2NS(ids[-2])[0] if len(ids)>1 else None
       nsoPrev=nsMap[nsPrev] if (nsPrev and nsPrev in nsMap) else None
       # namespace-rules checking
@@ -248,7 +252,7 @@ class DBNamespaced(DBBase):
       ids=tuple(ids)
       needReplaceMaxIndex=(nsoNow and nsi and data is not None and data is not False and isinstance(nsi, int))
       stopwatch()
-      r=super(DBNamespaced, self).set(ids, data, allowMerge=allowMerge, existChecked=(isExist, props), **kwargs)
+      r=super(DBNamespaced, self).set(ids, data, allowMerge=allowMerge, existChecked=(isExist, props), onlyIfExist=onlyIfExist, strictMode=strictMode, **kwargs)
       # инкрементим `maxIndex` после добавления, чтобы в случае ошибки не увеличивать счетчик
       if r is not False and needReplaceMaxIndex:
          nsoNow['maxIndex']=max(nsoNow['maxIndex'], nsi)

@@ -46,7 +46,16 @@ class BadLinkError(BaseDBErrorPrefixed):
    """Referring to non-existed object"""
 
 class StrictModeError(BaseDBError):
-   """ Raise this only in strict mode for cases, where usually we shows warning. """
+   """Raise this only in strict mode for cases, where usually we shows warning"""
+
+class ParentNotExistError(BaseDBErrorPrefixed, StrictModeError):
+   """Parent not exists"""
+
+class ExistStatusMismatchError(BaseDBErrorPrefixed, StrictModeError):
+   """Exist-status mismatching"""
+
+class NotExistError(BaseDBErrorPrefixed, StrictModeError):
+   """Object not exists"""
 
 class ExtensionDependencyError(BaseDBErrorPrefixed):
    """Unmet dependencies for extension"""

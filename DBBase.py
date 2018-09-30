@@ -378,7 +378,7 @@ class DBBase(object):
          elif not isExist:
             if strictMode:
                stopwatch()
-               raise StrictModeError('Parent "%s" not exists: %s'%(ids2, ids))
+               raise ParentNotExistError('"%s" for %s'%(ids2, ids))
             elif propRules['defaultMinimalProps'] is None:
                stopwatch()
                raise ValueError("Parent '%s' not exists and some property's default vals missed: %s"%(ids2, ids))
@@ -514,7 +514,7 @@ class DBBase(object):
             else:
                if strictMode:
                   stopwatch()
-                  raise StrictModeError('Parent "%s" not exists: %s'%(id, ids))
+                  raise ParentNotExistError('"%s" for %s'%(id, ids))
                res[0]=None
             res[1], res[2]={}, None
             break
@@ -584,19 +584,19 @@ class DBBase(object):
       stopwatch()
       return ids
 
-   def link(self, ids, ids2, existChecked=None):
+   def link(self, ids, ids2, existChecked=None, onlyIfExist=None, strictMode=False):
       ids=self._prepIds(ids)
       ids2=self._prepIds(ids2)
-      return self.set(ids, True, allowMerge=False, existChecked=existChecked, propsUpdate={'link':ids2})
+      return self.set(ids, True, allowMerge=False, existChecked=existChecked, propsUpdate={'link':ids2}, onlyIfExist=onlyIfExist, strictMode=strictMode)
 
-   def remove(self, ids, existChecked=None):
-      self.set(ids, None, allowMerge=False, existChecked=existChecked)
+   def remove(self, ids, existChecked=None, strictMode=False):
+      self.set(ids, None, allowMerge=False, existChecked=existChecked, onlyIfExist=True, strictMode=strictMode)
 
    def _validateOnSet(self, ids, data, isExist=None, props=None, allowMerge=None, propsUpdate=None, **kwargs):
       # хук, позволяющий проверить или модефицировать данные (и Props) перед их добавлением
       return isExist, data, allowMerge
 
-   def set(self, ids, data, allowMerge=True, existChecked=None, propsUpdate=None, allowForceRemoveChilds=True, **kwargs):
+   def set(self, ids, data, allowMerge=True, existChecked=None, propsUpdate=None, allowForceRemoveChilds=True, onlyIfExist=None, strictMode=False, **kwargs):
       # если вызывающий хочет пропустить проверку `self._findInIndex()`, нужно передать в `existChecked`, высчитанные `properties` (в таком случае будет считаться, что обьект существует) илиже `(isExist, properties)` если нужно указать непосредственный статус `isExist`
       stopwatch=self.stopwatch('set@DBBase')
       if not propsUpdate: propsUpdate={}
@@ -614,6 +614,10 @@ class DBBase(object):
          ids=self._generateId(ids, props=props)
       if not isExist and self._idBadPattern(ids[-1]) is True:
          raise BadIdError(ids[-1])
+      if onlyIfExist is not None and isExist!=onlyIfExist:
+         if strictMode:
+            raise ExistStatusMismatchError('expected "isExist=%s" for %s'%(onlyIfExist, ids))
+         return None
       if data is not True and 'link' in props and props['link']: propsUpdate['link']=None
       #
       _backlinkDel, _oldLink, _backlinkAdd, _newLink=False, None, False, None
@@ -725,6 +729,8 @@ class DBBase(object):
          return None
       if not isExist:
          stopwatch()
+         if strictMode:
+            raise NotExistError(ids)
          return None
       res=self._get(ids, props, **kwargs)
       if res is not True and not returnRaw:
