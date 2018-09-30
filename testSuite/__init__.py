@@ -20,7 +20,7 @@ class ScreendeskTestDB:
       self.db.settings.columns_default_allowMissed=False
       self.db.settings.dataMerge_ex=True
       self.db.settings.dataMerge_deep=False
-      # self.configNS()
+      self.configNS()
       self.db.connect()
 
    def configNS(self):
@@ -46,15 +46,15 @@ class ScreendeskTestDB:
       #    print '-', ids
       #    self.db.remove(ids, existChecked=props)
 
-   def _makeLongLink(self, root=None, l=10):
+   def _makeLongLink(self, l=10, root=None):
       if root is None:
-         self.db.set('root', {'d':'root'})
-         chain=('root',)
+         self.db.set('longLink_root', {'data':'root of long-link'}, strictMode=False, onlyIfExist=False)
+         chain=('longLink_root',)
       else:
          chain=root if isTuple(root) else (root,)
       for i in xrange(l):
          k='_tmpLink%s'%i
-         self.db.link(chain+(k,), chain)
+         self.db.link(chain+(k,), chain, strictMode=False, onlyIfExist=False)
          chain=chain+(k,)
       return chain
 

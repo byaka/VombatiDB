@@ -1,4 +1,7 @@
 
+longLink_root
+\x80\x02}q\x01U\x08backlinkq\x02c__builtin__\nset\nq\x03]q\x04U\rlongLink_rootU\t_tmpLink0\x86q\x05a\x85Rq\x06s.
+\x80\x02}q\x01U\x04dataU\x11root of long-links.
 user2
 
 \x80\x02}q\x01(X\x04\x00\x00\x00nameX\x06\x00\x00\x00User 2X\x05\x00\x00\x00emailX\x0e\x00\x00\x00user_2@test.ruu.
@@ -76,4 +79,34 @@ user2	operator3	project1
 @
 user2	operator1	project1
 \x80\x02}q\x01U\x04linkq\x02U\x05user2U\x08project1\x86q\x03s.
+@
+longLink_root	_tmpLink0
+\x80\x02}q\x01(U\x04linkq\x02U\rlongLink_rootq\x03\x85q\x04U\x08backlinkq\x05c__builtin__\nset\nq\x06]q\x07h\x03U\t_tmpLink0U\t_tmpLink1\x87q\x08a\x85Rq\tu.
+@
+longLink_root	_tmpLink0	_tmpLink1
+\x80\x02}q\x01(U\x04linkq\x02U\rlongLink_rootq\x03U\t_tmpLink0q\x04\x86q\x05U\x08backlinkq\x06c__builtin__\nset\nq\x07]q\x08(h\x03h\x04U\t_tmpLink1U\t_tmpLink2tq\ta\x85Rq\nu.
+@
+longLink_root	_tmpLink0	_tmpLink1	_tmpLink2
+\x80\x02}q\x01(U\x04linkq\x02U\rlongLink_rootq\x03U\t_tmpLink0q\x04U\t_tmpLink1q\x05\x87q\x06U\x08backlinkq\x07c__builtin__\nset\nq\x08]q\t(h\x03h\x04h\x05U\t_tmpLink2U\t_tmpLink3tq\na\x85Rq\x0bu.
+@
+longLink_root	_tmpLink0	_tmpLink1	_tmpLink2	_tmpLink3
+\x80\x02}q\x01(U\x04linkq\x02(U\rlongLink_rootq\x03U\t_tmpLink0q\x04U\t_tmpLink1q\x05U\t_tmpLink2q\x06tq\x07U\x08backlinkq\x08c__builtin__\nset\nq\t]q\n(h\x03h\x04h\x05h\x06U\t_tmpLink3U\t_tmpLink4tq\x0ba\x85Rq\x0cu.
+@
+longLink_root	_tmpLink0	_tmpLink1	_tmpLink2	_tmpLink3	_tmpLink4
+\x80\x02}q\x01(U\x04linkq\x02(U\rlongLink_rootq\x03U\t_tmpLink0q\x04U\t_tmpLink1q\x05U\t_tmpLink2q\x06U\t_tmpLink3q\x07tq\x08U\x08backlinkq\tc__builtin__\nset\nq\n]q\x0b(h\x03h\x04h\x05h\x06h\x07U\t_tmpLink4U\t_tmpLink5tq\x0ca\x85Rq\ru.
+@
+longLink_root	_tmpLink0	_tmpLink1	_tmpLink2	_tmpLink3	_tmpLink4	_tmpLink5
+\x80\x02}q\x01(U\x04linkq\x02(U\rlongLink_rootq\x03U\t_tmpLink0q\x04U\t_tmpLink1q\x05U\t_tmpLink2q\x06U\t_tmpLink3q\x07U\t_tmpLink4q\x08tq\tU\x08backlinkq\nc__builtin__\nset\nq\x0b]q\x0c(h\x03h\x04h\x05h\x06h\x07h\x08U\t_tmpLink5U\t_tmpLink6tq\ra\x85Rq\x0eu.
+@
+longLink_root	_tmpLink0	_tmpLink1	_tmpLink2	_tmpLink3	_tmpLink4	_tmpLink5	_tmpLink6
+\x80\x02}q\x01(U\x04linkq\x02(U\rlongLink_rootq\x03U\t_tmpLink0q\x04U\t_tmpLink1q\x05U\t_tmpLink2q\x06U\t_tmpLink3q\x07U\t_tmpLink4q\x08U\t_tmpLink5q\ttq\nU\x08backlinkq\x0bc__builtin__\nset\nq\x0c]q\r(h\x03h\x04h\x05h\x06h\x07h\x08h\tU\t_tmpLink6U\t_tmpLink7tq\x0ea\x85Rq\x0fu.
+@
+longLink_root	_tmpLink0	_tmpLink1	_tmpLink2	_tmpLink3	_tmpLink4	_tmpLink5	_tmpLink6	_tmpLink7
+\x80\x02}q\x01(U\x04linkq\x02(U\rlongLink_rootq\x03U\t_tmpLink0q\x04U\t_tmpLink1q\x05U\t_tmpLink2q\x06U\t_tmpLink3q\x07U\t_tmpLink4q\x08U\t_tmpLink5q\tU\t_tmpLink6q\ntq\x0bU\x08backlinkq\x0cc__builtin__\nset\nq\r]q\x0e(h\x03h\x04h\x05h\x06h\x07h\x08h\th\nU\t_tmpLink7U\t_tmpLink8tq\x0fa\x85Rq\x10u.
+@
+longLink_root	_tmpLink0	_tmpLink1	_tmpLink2	_tmpLink3	_tmpLink4	_tmpLink5	_tmpLink6	_tmpLink7	_tmpLink8
+\x80\x02}q\x01(U\x04linkq\x02(U\rlongLink_rootq\x03U\t_tmpLink0q\x04U\t_tmpLink1q\x05U\t_tmpLink2q\x06U\t_tmpLink3q\x07U\t_tmpLink4q\x08U\t_tmpLink5q\tU\t_tmpLink6q\nU\t_tmpLink7q\x0btq\x0cU\x08backlinkq\rc__builtin__\nset\nq\x0e]q\x0f(h\x03h\x04h\x05h\x06h\x07h\x08h\th\nh\x0bU\t_tmpLink8U\t_tmpLink9tq\x10a\x85Rq\x11u.
+@
+longLink_root	_tmpLink0	_tmpLink1	_tmpLink2	_tmpLink3	_tmpLink4	_tmpLink5	_tmpLink6	_tmpLink7	_tmpLink8	_tmpLink9
+\x80\x02}q\x01U\x04linkq\x02(U\rlongLink_rootU\t_tmpLink0U\t_tmpLink1U\t_tmpLink2U\t_tmpLink3U\t_tmpLink4U\t_tmpLink5U\t_tmpLink6U\t_tmpLink7U\t_tmpLink8tq\x03s.
 @
