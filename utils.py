@@ -156,7 +156,6 @@ def showDB(db, branch=None, limit=None):
             l2=width-l
             tArr.append(_data[:l2])
             _data=_data[l2:]
-            l=len(unicodedata.normalize('NFC', o['indent']))
          if tArr and _data:
             tArr.append(_data)
          o['data']=('%(end)s%(indent3)s%(inverse)s%(light)s'%dict(colors, **o)).join(tArr) if tArr else _data
@@ -175,7 +174,6 @@ def showDB(db, branch=None, limit=None):
                l2=width-l
                tArr.append(_props[:l2])
                _props=_props[l2:]
-               l=leftPartLen
             if tArr and _props:
                tArr.append(_props)
             o['props']=('%(end)s%(indent3)s%(light)s'%dict(colors, **o)).join(tArr) if tArr else _props
