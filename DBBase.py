@@ -638,8 +638,8 @@ class DBBase(object):
       ids2=self._prepIds(ids2)
       return self.set(ids, True, allowMerge=False, existChecked=existChecked, propsUpdate={'link':ids2}, onlyIfExist=onlyIfExist, strictMode=strictMode)
 
-   def remove(self, ids, existChecked=None, strictMode=False):
-      self.set(ids, None, allowMerge=False, existChecked=existChecked, onlyIfExist=True, strictMode=strictMode)
+   def remove(self, ids, existChecked=None, onlyIfExist=None, strictMode=False):
+      return self.set(ids, None, allowMerge=False, existChecked=existChecked, onlyIfExist=onlyIfExist, strictMode=strictMode)
 
    def _validateOnSet(self, ids, data, isExist=None, props=None, allowMerge=None, propsUpdate=None, **kwargs):
       # хук, позволяющий проверить или модефицировать данные (и Props) перед их добавлением
@@ -756,6 +756,23 @@ class DBBase(object):
    def _set(self, items, **kwargs):
       pass
 
+   def move(self, idsFrom, idsTo, onlyIfExist=None, strictMode=True):
+      #! это заглушка - подробности в *issue#50*
+      data=self.get(idsFrom, returnRaw=True, strictMode=strictMode)
+      if data is None:
+         if strictMode:
+            #? насамом деле эта ветка ненужна - строгий режим выкинет исключение внутри `get()`
+            raise NotExistError(idsFrom)
+         return None
+      r=self.set(idsTo, data, allowMerge=False, onlyIfExist=onlyIfExist, strictMode=strictMode)
+      if not r:
+         if strictMode:
+            #? насамом деле эта ветка ненужна - строгий режим выкинет исключение внутри `get()`
+            raise NotExistError(idsFrom)
+         return None
+      r=self.remove(idsFrom, strictMode=strictMode)
+      return r
+
    def get(self, ids, existChecked=None, returnRaw=False, strictMode=False, **kwargs):
       stopwatch=self.stopwatch('get@DBBase')
       ids=self._prepIds(ids)
@@ -767,6 +784,11 @@ class DBBase(object):
          badLinkChain=[]
          if existChecked is None:
             isExist, props, _=self._findInIndex(ids, strictMode=strictMode, calcProperties=True, needChain=badLinkChain)
+            if not isExist:
+               stopwatch()
+               if strictMode:
+                  raise NotExistError(ids)
+               return None
             ids=badLinkChain[-1][0]  # getting target, if this was link
          else:
             isExist, props=existChecked if isinstance(existChecked, tuple) else (True, existChecked)
@@ -779,11 +801,6 @@ class DBBase(object):
          for ids, props in reversed(badLinkChain):
             self.set(ids, None, existChecked=props, allowForceRemoveChilds=True)
          stopwatch()
-         return None
-      if not isExist:
-         stopwatch()
-         if strictMode:
-            raise NotExistError(ids)
          return None
       res=self._get(ids, props, **kwargs)
       if res is not True and not returnRaw:
