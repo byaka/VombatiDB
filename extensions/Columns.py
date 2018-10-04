@@ -37,12 +37,12 @@ class DBWithColumns(DBBase):
       pass
 
    def setColumns(self, ns, columns):
-      if ns not in self.__ns:
-         raise ValueError('Namespace "%s" not exist'%ns)
       if not columns:
-         if 'columns' in self.__ns[ns]: del self.__ns[ns]['columns']
+         if ns in self.__ns and 'columns' in self.__ns[ns]: del self.__ns[ns]['columns']
          if ns in self.__columns: del self.__columns[ns]
          return
+      if ns not in self.__ns:
+         raise ValueError('Namespace "%s" not exist'%ns)
       if not isinstance(columns, dict):
          raise ValueError('Incorrect `columns` format')
       self.__ns[ns]['columns']=columns.copy()
@@ -116,8 +116,7 @@ class DBWithColumns(DBBase):
       return res
 
    def _namespaceChanged(self, name, setts, old):
-      if setts is None: pass  # removed
-      elif 'columns' not in setts or not setts['columns']:
+      if setts is None or 'columns' not in setts or not setts['columns']:
          self.setColumns(name, None)
       elif isinstance(setts['columns'], dict):
          self.setColumns(name, setts['columns'])

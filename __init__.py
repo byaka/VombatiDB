@@ -2,6 +2,7 @@
 from .utils import *
 from .DBBase import DBBase
 from .extensions import extensions
+from . import errors
 
 """
 This library is an __.
@@ -34,8 +35,15 @@ for n, m in extensions.iteritems():
    o, alias=m.__init()
    alias=[s.lower() for s in ([alias] if isString(alias) else alias)]
    DBExts[o.__name__]=o
-   DBExtsMap[o]={'alias':alias}
+   DBExtsMap[o]={'alias':alias, 'module':m, 'errors':{}}
    for s in alias: DBExts[s]=o
+   for k in dir(m):
+      try:
+         oo=getattr(m, k)
+         assert issubclass(oo, Exception)
+         assert oo.__module__==o.__module__
+         DBExtsMap[o]['errors'][k]=oo
+      except Exception: pass
 
 def VombatiDB(exts):
    if exts:
@@ -66,5 +74,9 @@ def VombatiDB(exts):
                continue
             s=oo[0] if len(oo)==1 else ' or '.join(oo)
             raise ExtensionDependencyError('%s need %s'%(o.__name__, s))
+      # import errors
+      for o in exts:
+         for k,v in DBExtsMap[o]['errors'].iteritems():
+            setattr(errors, k, v)
    print 'Creating DB-instance '+('(original)' if not exts else 'with exts %s'%', '.join(o.__name__ for o in exts))
    return ClassFactory(DBBase, exts, fixPrivateAttrs=True)

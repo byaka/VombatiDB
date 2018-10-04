@@ -92,7 +92,7 @@ class DBNamespaced(DBBase):
             nsiMax=nso['maxIndex']
             for nsi in iiArr:
                try: nsi=int(nsi)
-               except ValueError:
+               except (ValueError, TypeError):
                   if nso['onlyIndexed']:
                      self.workspace.log(2, 'Incorrect index for id (%s%s)'%(ns, nsi))
                   continue
@@ -128,7 +128,11 @@ class DBNamespaced(DBBase):
       pass
 
    def configureNS(self, config, andClear=True, keyMap=None):
-      if andClear: self.__ns.clear()
+      if andClear:
+         old=self.__ns.copy()
+         self.__ns.clear()
+         for ns, oldSetts in old.iteritems():
+            self._namespaceChanged(ns, None, oldSetts)
       #! добавить поддержку разных форматов конфига с авто-конвертом в дефолтный
       keyMap=keyMap or self._settings['ns_config_keyMap']
       tArr1=[]
@@ -192,7 +196,7 @@ class DBNamespaced(DBBase):
             nsoNow=nsMap[nsNow]
             #! такой способ конвертации довольно дорогой. лучше в парсере пытаться отдельно извлечь цифровую группу и отдельно строковый идентификатор, и таким образом выполнять конвертацию прямо в парсере
             try: nsi=int(nsi)
-            except ValueError:
+            except (ValueError, TypeError):
                if nsoNow['onlyIndexed']:
                   stopwatch()
                   raise NamespaceIndexError('index required for NS(%s)'%(nsNow,))

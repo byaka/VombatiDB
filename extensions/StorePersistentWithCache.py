@@ -30,6 +30,7 @@ class DBStorePersistentWithCache(DBBase):
       self.__data_lock=RLock()
       self.__meta_lock=RLock()
       self.__flushQueue={}
+      self.__c_OBJECT_REPLACED=object()  # special const for indicate, that object fully replaced
       return super(DBStorePersistentWithCache, self)._init(*args, **kwargs)
 
    def _reset(self, *args, **kwargs):
@@ -209,8 +210,8 @@ class DBStorePersistentWithCache(DBBase):
             self.__flushQueue[ids]=[{}, tDiff, t, t]
          else:
             o=self.__flushQueue[ids]
-            if not isinstance(tDiff, dict) or not o[1] or (o[1] is not True and not isinstance(o[1], dict)): o[1]=tDiff
-            elif o[1] is True:
+            if not isinstance(tDiff, dict) or not o[1] or (o[1] is not self.__c_OBJECT_REPLACED and not isinstance(o[1], dict)): o[1]=tDiff
+            elif o[1] is self.__c_OBJECT_REPLACED:
                o[1]=self.__cache[ids]
             else:
                o[1].update(tDiff)
@@ -235,10 +236,10 @@ class DBStorePersistentWithCache(DBBase):
             else:
                return diff
          else:
-            return True
+            return self.__c_OBJECT_REPLACED
       else:
          self.__cache[ids]=data
-         return True
+         return self.__c_OBJECT_REPLACED
 
    def _get(self, ids, props, **kwargs):
       return self.__cache[ids]
@@ -277,7 +278,7 @@ class DBStorePersistentWithCache(DBBase):
                   data=self.__cache[ids]
                   if data is None: _data='-'
                   elif data is True: _data='@'
-                  elif not data: _data=''
+                  # elif not data and not isinstance(data, dict): _data='+'
                   else:
                      _data=pickle.dumps(data, pickle.HIGHEST_PROTOCOL).encode('string_escape')
                   _props={k:v for k,v in props.iteritems() if k in propRules['persistent']}
@@ -313,20 +314,20 @@ class DBStorePersistentWithCache(DBBase):
                tArr, self.__flushQueue=self.__flushQueue.copy(), {}
                for ids, (propDiff, dataDiff, timeC, timeM) in tArr.iteritems():
                   if dataDiff is None: _data='-'
-                  elif not dataDiff: _data='+'
                   elif isinstance(dataDiff, dict):
                      _data='+'+pickle.dumps(dataDiff, pickle.HIGHEST_PROTOCOL).encode('string_escape')
-                  elif dataDiff is True:
+                  elif not dataDiff: _data='+'
+                  elif dataDiff is self.__c_OBJECT_REPLACED:
                      data=self.__cache[ids]
                      if data is None: _data='-'
                      elif data is True: _data='@'
-                     elif not data: _data=''
+                     # elif not data and not isinstance(data, dict): _data='+'
                      else:
                         _data=pickle.dumps(data, pickle.HIGHEST_PROTOCOL).encode('string_escape')
                   #
                   if not propDiff: _props=''
                   else:
-                     _props={k:v for k,v in propDiff.iteritems() if k in propRules['persistent']}
+                     _props={k:propDiff[k] for k in propDiff if k in propRules['persistent']}
                      _props=pickle.dumps(_props, pickle.HIGHEST_PROTOCOL).encode('string_escape') if _props else ''
                   #
                   if not _props and _data=='+': continue
