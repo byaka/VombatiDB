@@ -107,7 +107,7 @@ def showDB(db, branch=None, limit=None):
          print '%(inverse)s%(light)s... SOME MORE OBJECTS HIDDEN ...%(end)s'%colors
          break
       lvl=len(ids)-1
-      data=db.get(ids, existChecked=props)
+      data=db.get(ids, existChecked=props, returnRaw=True)
       _data=repr(data) if data is not None else 'REMOVED'
       _props=repr(props)
       o={

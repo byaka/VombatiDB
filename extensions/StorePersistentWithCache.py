@@ -203,7 +203,7 @@ class DBStorePersistentWithCache(DBBase):
             stopwatch()
             raise ValueError('Incorrect format for %s'%(ids,))
          tDiff=changes[ids]=self._saveToCache(ids, isExist, data, allowMerge, props, propsUpdate)
-         if _skipFlushing: pass
+         if _skipFlushing: continue
          elif tDiff is False: pass
          elif ids not in self.__flushQueue:
             t=timetime()

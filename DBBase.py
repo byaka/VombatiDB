@@ -192,6 +192,7 @@ class DBBase(object):
       return res
 
    def getProps(self):
+      #! сделать этот метод специальным и переименовать, ибо возникает ассоциация что он возвращает `props` обьекта
       return copy.deepcopy(self.__propMap), copy.deepcopy(self.__propCompiled)
 
    def _regProp(self, name, default=None, inherit=False, needed=False, bubble=False, persistent=False):
@@ -272,7 +273,7 @@ class DBBase(object):
          _needChain=needChain.append
       tQueue=deque((ids, ))
       _tQueueAppend=tQueue.append
-      _tQueuePop=tQueue.pop
+      _tQueuePop=tQueue.popleft
       _root=self.__index
       while tQueue:
          ids=_tQueuePop()
@@ -633,13 +634,30 @@ class DBBase(object):
       stopwatch()
       return ids
 
-   def link(self, ids, ids2, existChecked=None, onlyIfExist=None, strictMode=False):
-      ids=self._prepIds(ids)
-      ids2=self._prepIds(ids2)
-      return self.set(ids, True, allowMerge=False, existChecked=existChecked, propsUpdate={'link':ids2}, onlyIfExist=onlyIfExist, strictMode=strictMode)
+   def link(self, idsTo, idsFrom, existChecked=None, onlyIfExist=None, strictMode=False):
+      idsTo=self._prepIds(idsTo)
+      idsFrom=self._prepIds(idsFrom)
+      return self.set(idsTo, True, existChecked=existChecked, propsUpdate={'link':idsFrom}, onlyIfExist=onlyIfExist, strictMode=strictMode)
 
-   def remove(self, ids, existChecked=None, onlyIfExist=None, strictMode=False):
-      return self.set(ids, None, allowMerge=False, existChecked=existChecked, onlyIfExist=onlyIfExist, strictMode=strictMode)
+   def remove(self, ids, existChecked=None, strictMode=False):
+      return self.set(ids, None, existChecked=existChecked, onlyIfExist=True, strictMode=strictMode)
+
+   def move(self, idsFrom, idsTo, onlyIfExist=None, strictMode=True, fixLinks=True):
+      #! это заглушка - подробности в *issue#50*
+      data=self.get(idsFrom, returnRaw=True, strictMode=strictMode)
+      if data is None:
+         if strictMode:
+            #? насамом деле эта ветка ненужна - строгий режим выкинет исключение внутри `get()`
+            raise NotExistError(idsFrom)
+         return None
+      r=self.set(idsTo, data, allowMerge=False, onlyIfExist=onlyIfExist, strictMode=strictMode)
+      if not r:
+         if strictMode:
+            #? насамом деле эта ветка ненужна - строгий режим выкинет исключение внутри `get()`
+            raise NotExistError(idsFrom)
+         return None
+      r=self.remove(idsFrom, strictMode=strictMode)
+      return r
 
    def _validateOnSet(self, ids, data, isExist=None, props=None, allowMerge=None, propsUpdate=None, **kwargs):
       # хук, позволяющий проверить или модефицировать данные (и Props) перед их добавлением
@@ -755,23 +773,6 @@ class DBBase(object):
 
    def _set(self, items, **kwargs):
       pass
-
-   def move(self, idsFrom, idsTo, onlyIfExist=None, strictMode=True):
-      #! это заглушка - подробности в *issue#50*
-      data=self.get(idsFrom, returnRaw=True, strictMode=strictMode)
-      if data is None:
-         if strictMode:
-            #? насамом деле эта ветка ненужна - строгий режим выкинет исключение внутри `get()`
-            raise NotExistError(idsFrom)
-         return None
-      r=self.set(idsTo, data, allowMerge=False, onlyIfExist=onlyIfExist, strictMode=strictMode)
-      if not r:
-         if strictMode:
-            #? насамом деле эта ветка ненужна - строгий режим выкинет исключение внутри `get()`
-            raise NotExistError(idsFrom)
-         return None
-      r=self.remove(idsFrom, strictMode=strictMode)
-      return r
 
    def get(self, ids, existChecked=None, returnRaw=False, strictMode=False, **kwargs):
       stopwatch=self.stopwatch('get@DBBase')
