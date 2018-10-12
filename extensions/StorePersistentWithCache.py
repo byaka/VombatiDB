@@ -104,6 +104,7 @@ class DBStorePersistentWithCache(DBBase):
       mytime=getms(inMS=True)
       fn, fp, fExist=self._checkFileFromStore('data')
       if not fExist: return None
+      backlinkQueue=defaultdict(set)
       with open(fp, 'rU') as f:
          curKeyLen, maxKeyLen=1, 1
          while curKeyLen<=maxKeyLen:
@@ -125,6 +126,9 @@ class DBStorePersistentWithCache(DBBase):
                   ids=_ids
                elif props is None:
                   props={} if not line else pickle.loads(line.decode('string_escape'))
+                  props.pop('backlink', None)  # fix old db-versions
+                  if ids in backlinkQueue:
+                     props['backlink']=backlinkQueue.pop(ids)
                else:
                   try:
                      if line=='-':
@@ -143,6 +147,16 @@ class DBStorePersistentWithCache(DBBase):
                         data=pickle.loads(data.decode('string_escape')) if data else {}
                      tArr=((ids, (isExist, data, allowMerge, props, {})),)
                      self._set(tArr, _skipFlushing=True)
+                     if 'link' in props:
+                        ids2=props['link']
+                        isExist2, props2, _=self._findInIndex(ids2, strictMode=False, calcProperties=False, skipLinkChecking=True)
+                        if isExist2:
+                           if 'backlink' in props2:
+                              props2['backlink'].add(ids)
+                           else:
+                              props2['backlink']=set((ids,))
+                        else:
+                           backlinkQueue[ids2].add(ids)
                   #
                   ids, props=None, None
             curKeyLen+=1
@@ -345,11 +359,12 @@ class DBStorePersistentWithCache(DBBase):
    def _saveMetaToStore(self, **kwargs):
       self.workspace.log(4, 'Saving Meta to fs-store')
       mytime=getms(inMS=True)
+      data=self._dumpMeta()
+      self.workspace.log(3, 'Dumped meta in %ims'%(getms(inMS=True)-mytime))
       fp=self._checkFileFromStore('meta')[1]
-      with self.__meta_lock:
-         data=self._dumpMeta()
-         self.workspace.log(3, 'Dumped meta in %ims'%(getms(inMS=True)-mytime))
-         self.workspace.server._fileWrite(fp, data, mode='w', silent=False, buffer=0)
+      with self.__meta_lock, open(fp, 'w') as f:
+         geventFileObject(f)
+         f.write(data)
       self.workspace.log(3, 'Saved Meta to fs-store in %ims'%(getms(inMS=True)-mytime))
 
    def truncate(self, **kwargs):

@@ -92,7 +92,7 @@ class DBBase(object):
       self._idBadPattern.add('\n')
       #
       self._regProp('link', persistent=True)
-      self._regProp('backlink', persistent=True)
+      self._regProp('backlink')
       #
       for k, v in self.__supportsDefault.iteritems():
          self.supports.setdefault(k, v)
@@ -306,8 +306,14 @@ class DBBase(object):
 
    def _initPreExit(self):
       atexit.register(self.close)
-      signal.signal(signal.SIGTERM, self.close)
-      signal.signal(signal.SIGINT, self.close)
+      def tFunc(sigId, stack, self_close=self.close, old=None):
+         self_close()
+         if old is not None:
+            old(sigId, stack)
+      for s in (signal.SIGTERM, signal.SIGINT):
+         old=signal.getsignal(s)
+         if not isFunction(old): old=None
+         signal.signal(s, bind(tFunc, {'old':old}))
 
    def _initMeta(self):
       self.__meta={}
