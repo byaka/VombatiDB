@@ -54,7 +54,7 @@ class DBSearch_simple(DBBase):
             what=', '.join(what)
          what='(%s)'%what
       else:
-         raise ValueError('Incorrect type for `branch` arg')
+         raise ValueError('Incorrect type for `what` arg')
       if not branch: branch=None
       elif isinstance(branch, (str, unicode, list, tuple)):
          branch=self._prepIds(branch)
