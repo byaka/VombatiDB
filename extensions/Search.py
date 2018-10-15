@@ -11,10 +11,11 @@ class QueryError(BaseDBErrorPrefixed):
 class DBSearch_simple(DBBase):
    def _init(self, *args, **kwargs):
       res=super(DBSearch_simple, self)._init(*args, **kwargs)
+      self.query_pattern_check_what=re.compile(r'[^\w\d_]+WHAT[^\w\d_]+')
+      self.query_pattern_check_where=re.compile(r'[^\w\d_]+WHERE[^\w\d_]+')
       self.query_pattern_check_data=re.compile(r'[^\w\d_]+DATA[^\w\d_]+')
       self.query_pattern_check_ns=re.compile(r'[^\w\d_]+NS|INDEX[^\w\d_]+')
       self.query_pattern_clear_indent=re.compile(r'^ {6}', re.MULTILINE)
-      self.query_pattern_clear_indent2=re.compile(r'^', re.MULTILINE)
       self.query_pattern_globalsRepared='__GLOBALS_REPARED'
       self.query_envName='<DBSearch_simple.query>'
       self.settings.search_queryCache=1000
@@ -48,11 +49,16 @@ class DBSearch_simple(DBBase):
    def queryPrep(self, what=None, branch=None, where=None, limit=None, pre=None, recursive=True, returnRaw=False, calcProperties=True, precompile=True, allowCache=True):
       stopwatch=self.stopwatch('queryPrep%s@DBSearch_simple'%('-precompile' if precompile else ''))
       _tab=' '*3
+      what_isMultiline=False
+      where_isMultiline=False
       if not what or what=='*': what=None
       elif isinstance(what, (str, unicode, list, tuple)):
          if isinstance(what, (list, tuple)):
-            what=', '.join(what)
-         what='(%s)'%what
+            _what=', '.join(what)
+            what_isMultiline=self.query_pattern_check_what.search(_what) is not None
+            what=_what if not what_isMultiline else ('\n'+_tab*5)+('\n'+_tab*5).join(what)
+         else:
+            what='(%s)'%what
       else:
          raise ValueError('Incorrect type for `what` arg')
       if not branch: branch=None
@@ -63,16 +69,20 @@ class DBSearch_simple(DBBase):
       if not where: where=None
       elif isinstance(where, (str, unicode, list, tuple)):
          if isinstance(where, (list, tuple)):
-            where=' and '.join(where)
-         where='not(%s)'%where
+            _where=' and '.join(where)
+            where_isMultiline=self.query_pattern_check_where.search(_where) is not None
+            where=_where if not where_isMultiline else ('\n'+_tab*5)+('\n'+_tab*5).join(where)
+         else:
+            where='not(%s)'%where
       else:
          raise ValueError('Incorrect type for `where` arg')
       if not pre: pre=''
       elif isinstance(pre, (str, unicode, list, tuple)):
          if isinstance(pre, (list, tuple)):
-            pre='\n'.join(pre)
-         pre='# pre-processing begin\n%s\n# pre-processing end'%pre
-         pre='\n'+self.query_pattern_clear_indent2.sub(_tab*4, pre)
+            pre=('\n'+_tab*4)+('\n'+_tab*4).join(pre)
+         else:
+            pre=('\n'+_tab*4)+pre
+         pre='\n'+_tab*4+'# PRE-block'+pre+'\n'+_tab*4+'# PRE-block end'
       else:
          raise ValueError('Incorrect type for `pre` arg')
       #
@@ -105,7 +115,15 @@ class DBSearch_simple(DBBase):
       _data_need2=_data_need1 or (what and self.query_pattern_check_data.search(what) is not None)
       _ns_need2=_ns_need1 or (what and self.query_pattern_check_ns.search(what) is not None)
       #
-      _return_template=what or ('IDS, (PROPS, DATA, CHILDS)' if _data_need1 else 'IDS, (PROPS, CHILDS)')
+      if not what:
+         if _data_need1 and _ns_need1:
+            what='IDS, (NS, INDEX, PROPS, DATA, CHILDS)'
+         elif _data_need1:
+            what='IDS, (PROPS, DATA, CHILDS)'
+         elif _ns_need1:
+            what='IDS, (NS, INDEX, PROPS, CHILDS)'
+         else:
+            what='IDS, (PROPS, CHILDS)'
       code=["""
       def RUN():
          try:"""+pre+"""
@@ -125,7 +143,11 @@ class DBSearch_simple(DBBase):
          _code(_indent1+"try: DATA=db_get(IDS, existChecked=PROPS, returnRaw=%s, strictMode=True)"%(returnRaw))
          _code(_indent1+"except _StrictModeError: continue")
       if where:
-         _code(_indent1+"if %s: continue  # WHERE-condition"%where)
+         if where_isMultiline:
+            _code(_indent1+'# WHERE-block'+where)
+            _code(_indent1+"if not(WHERE): continue\n"+_indent1+'# WHERE-block ended')
+         else:
+            _code(_indent1+"if %s: continue  # WHERE-condition"%where)
       if not _ns_need1 and _ns_need2:
          _code(_indent1+"NS, INDEX=db_parseId2NS(ID)")
       if not _data_need1 and _data_need2:
@@ -134,9 +156,17 @@ class DBSearch_simple(DBBase):
       if not returnRaw:
          _code(_indent1+"PROPS=_MagicDict(PROPS)")
       if limit==1:
-         _code(_indent1+"return "+_return_template)
+         if what_isMultiline:
+            _code(_indent1+'# WHAT-block'+what)
+            _code(_indent1+"return WHAT\n"+_indent1+'# WHAT-block ended')
+         else:
+            _code(_indent1+"return "+what)
       else:
-         _code(_indent1+"extCmd=yield "+_return_template)
+         if what_isMultiline:
+            _code(_indent1+'# WHAT-block'+what)
+            _code(_indent1+"extCmd=yield WHAT\n"+_indent1+'# WHAT-block ended')
+         else:
+            _code(_indent1+"extCmd=yield "+what)
          _code(_indent1+"c+=1")
          if limit:
             _code(_indent1+"if c>=%i: break"%limit)
