@@ -20,8 +20,9 @@ class ScreendeskTestDB:
       self.db.settings.columns_default_allowMissed=False
       self.db.settings.dataMerge_ex=True
       self.db.settings.dataMerge_deep=False
-      self.configNS()
+      self.db.settings.ns_checkIndexOnConnect=False
       self.db.connect()
+      self.configNS()
 
    def configNS(self):
       self.db.configureNS([
@@ -46,14 +47,14 @@ class ScreendeskTestDB:
       #    print '-', ids
       #    self.db.remove(ids, existChecked=props)
 
-   def _makeLongLink(self, l=10, root=None):
+   def _makeLongLink(self, l=10, root=None, ns='_tmpLink'):
       if root is None:
          self.db.set('longLink_root', {'data':'root of long-link'}, strictMode=False, onlyIfExist=False)
          chain=('longLink_root',)
       else:
          chain=root if isTuple(root) else (root,)
       for i in xrange(l):
-         k='_tmpLink%s'%i
+         k='%s%s'%(ns, i)
          self.db.link(chain+(k,), chain, strictMode=False, onlyIfExist=False)
          chain=chain+(k,)
       return chain
@@ -108,15 +109,15 @@ class ScreendeskTestDB:
             self.db.remove(s)
       lll=16
       print 'long-link(%s) modify with NS check'%lll
-      root='_ll'+randomEx()+randomEx()+randomEx()
+      root='ll_ROOT'+randomEx()+randomEx()+randomEx()
       self.db.set(root, {'k1':'test', 'k2':314})
       try:
-         ids=self._makeLongLink(root=root, l=lll)
-         self.db.setNS('_tmpLink', columns={'k1':'str', 'k2':'int'})
+         ids=self._makeLongLink(root=root, l=lll, ns='ll_item')
+         self.db.setNS('ll_item', columns={'k1':'str', 'k2':'int'})
          timeitMe(lambda: self.db.set(root, {'k1':str(time.time()), 'k2':int(time.time())}), n=100, m=1)
       finally:
          self.db.remove(root)
-         self.db.delNS('_tmpLink', strictMode=False, allowCheckIndex=False)
+         self.db.delNS('ll_item', strictMode=False, allowCheckIndex=False)
       print
 
    def speedtestRead(self):
