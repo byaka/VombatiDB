@@ -310,6 +310,7 @@ class DBBase(object):
          self_close()
          if old is not None:
             old(sigId, stack)
+         sys.exit(0)
       for s in (signal.SIGTERM, signal.SIGINT):
          old=signal.getsignal(s)
          if not isFunction(old): old=None
