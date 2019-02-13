@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
-import sys
+#~ importing lib, placed near us - not system
+import sys, os
+p=os.path.normpath(os.path.realpath(__file__)).split(os.path.sep)
+sys.path.insert(0, os.path.sep.join(p[:-3]))
+m=__import__(p[-3])
+for k in ('VombatiDB', 'showDB', 'showStats'):
+   globals()[k]=getattr(m, k)
+#
 sys.path.append('/var/python/libs/')
 sys.path.append('/var/python/')
 sys.path.append('/home/python/libs/')
@@ -7,30 +14,30 @@ sys.path.append('/home/python/')
 from flaskJSONRPCServer import flaskJSONRPCServer
 from functionsex import *
 from logger import LoggerLocal
-from VombatiDB import VombatiDB, showDB, showStats
 
 class ScreendeskTestDB:
    def __init__(self, workspace):
       self.workspace=workspace
       path=getScriptPath(real=True, f=__file__)+'/tmp/db1'
-      # print path, raw_input()
-      self.db=VombatiDB(('NS', 'Columns', 'StorePersistentWithCache', 'Search'))(self.workspace, path)
+      self.db=VombatiDB(('NS', 'Columns', 'MatchableLinks', 'StorePersistentWithCache', 'Search'))(self.workspace, path)
       self.db.settings.flushOnChange=False
       self.db.settings.columns_default_allowUnknown=False
       self.db.settings.columns_default_allowMissed=False
       self.db.settings.dataMerge_ex=True
       self.db.settings.dataMerge_deep=False
       self.db.settings.ns_checkIndexOnConnect=False
+      self.db.settings.linkedChilds_default_do=False
+      self.db.settings.linkedChilds_inheritNSFlags=False
       self.db.connect()
       self.configNS()
 
    def configNS(self):
       self.db.configureNS([
-      #  (Name, (Parents, Childs, Columns, AllowOnlyIndexed)) # noqa
+      #  (Name, (Parents, Childs, Columns, AllowOnlyIndexed, linkChilds)) # noqa
          ('tmp', (None, None, None, False)),
          ('user', (None, ['operator', 'project'], {'email':'str', 'name':'str'})),
          ('operator', (['user', 'project'], ['project'], {'__needed':False, '__allowUnknown':True, 'login':'str'})),
-         ('project', (['user', 'operator'], ['operator'], {'url':'str', 'type':'str'})),
+         ('project', (['user', 'operator'], ['operator'], {'url':'str', 'type':'str'}, True, True)),
       ], andClear=True)
 
    def modifyProp(self, ids, data):
@@ -224,7 +231,8 @@ class ScreendeskTestDB:
 
       print '\nTEST_ENDED'
       if self.workspace.server._raw_input('Show data again? ')=='y': self.show()
-      if console.inTerm() and self.workspace.server._raw_input('Run interactive mode? ')=='y': console.interact(scope=locals())
+      if console.inTerm() and self.workspace.server._raw_input('%(bgmagenta)s%(white)sRun interactive mode?%(end)s '%consoleColor)=='y':
+         console.interact(scope=locals())
       showStats(self.db)
 
 if __name__ == '__main__':
