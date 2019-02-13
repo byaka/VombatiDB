@@ -1,4 +1,29 @@
 # -*- coding: utf-8 -*-
+__ver_major__ = 0
+__ver_minor__ = 2
+__ver_patch__ = 0
+__ver_sub__ = "dev"
+__version__ = "%d.%d.%d" % (__ver_major__, __ver_minor__, __ver_patch__)
+"""
+:authors: John Byaka
+:copyright: Copyright 2019, Buber
+:license: Apache License 2.0
+
+:license:
+
+   Copyright 2019 Buber
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+"""
+
 from ..utils import *
 from ..DBBase import DBBase
 
@@ -115,12 +140,12 @@ class DBWithColumns(DBBase):
       elif val in ('none'): res=(types.NoneType,)
       return res
 
-   def _namespaceChanged(self, name, setts, old):
-      if setts is None or 'columns' not in setts or not setts['columns']:
-         self.setColumns(name, None)
-      elif isinstance(setts['columns'], dict):
-         self.setColumns(name, setts['columns'])
-      super(DBWithColumns, self)._namespaceChanged(name, setts, old)
+   def _namespaceChanged(self, ns, nsoNow, nsoOld):
+      if nsoNow is None or 'columns' not in nsoNow or not nsoNow['columns']:
+         self.setColumns(ns, None)
+      elif isinstance(nsoNow['columns'], dict):
+         self.setColumns(ns, nsoNow['columns'])
+      super(DBWithColumns, self)._namespaceChanged(ns, nsoNow, nsoOld)
 
    def _checkIdsNS(self, ids, props=None, **kwargs):
       idsMap=super(DBWithColumns, self)._checkIdsNS(ids, props=props, **kwargs)
