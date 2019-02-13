@@ -1,4 +1,29 @@
 # -*- coding: utf-8 -*-
+__ver_major__ = 0
+__ver_minor__ = 2
+__ver_patch__ = 0
+__ver_sub__ = "dev"
+__version__ = "%d.%d.%d" % (__ver_major__, __ver_minor__, __ver_patch__)
+"""
+:authors: John Byaka
+:copyright: Copyright 2019, Buber
+:license: Apache License 2.0
+
+:license:
+
+   Copyright 2019 Buber
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+"""
+
 from ..utils import *
 from ..DBBase import DBBase
 
@@ -30,7 +55,25 @@ class DBNamespaced(DBBase):
    def _initNS(self, data=None):
       if '_namespace' not in data: data['_namespace']={}
       self.__ns=data['_namespace']
+      self._repareNSConfig()
+      #! хранение дефолтных значений внутри конфига не позволяет запустить туже базу с другим набором дефолтных параметров
       self._loadedNS(self.__ns)
+
+   def _repareNSConfig(self, keyMap=None):
+      keyMap=keyMap or self._settings['ns_config_keyMap']
+      _required=object()
+      for ns, nso in self.__ns.iteritems():
+         for k in keyMap:
+            if isString(k):
+               vdef=_required
+            elif isTuple(k) and len(k)==2:
+               k, vdef=k
+            else:
+               raise ValueError('Unknown config for Namespaces: %s'%k)
+            if k in nso: continue
+            if vdef is _required:
+               raise KeyError('Missed required config-key for NS(%s)'%ns)
+            nso[k]=vdef
 
    def _connect(self, **kwargs):
       super(DBNamespaced, self)._connect(**kwargs)
@@ -76,12 +119,14 @@ class DBNamespaced(DBBase):
       return tArr
 
    def _checkIndexForNS(self, calcMaxIndex=True):
+      #! разным расширениям зачастую нужен механизм обхода всех обьектов при инициализации. нет смысла делать это раздельно, нужен единый механизм
+      #? однако этаже функция используется при реконфигурации неймспейсов для выполнения валидации.
       nsMap=self.__ns
       if not nsMap: return
       if calcMaxIndex and calcMaxIndex is not True:
          calcMaxIndex=calcMaxIndex if isList(calcMaxIndex) else (list(calcMaxIndex) if isTuple(calcMaxIndex) else [calcMaxIndex])
          calcMaxIndex=[ns for ns in calcMaxIndex if ns in nsMap]
-      for ids, (props, l) in self.iterBranch(ids=None, recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True):
+      for ids, (props, l) in self.iterBranch(recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True):
          tArr={}
          self._checkIdsNS(ids, nsIndexMap=tArr, props=props, childCount=l)
          if not calcMaxIndex: continue
@@ -99,7 +144,7 @@ class DBNamespaced(DBBase):
                nsiMax=max(nsiMax, nsi)
             nso['maxIndex']=nsiMax
 
-   def _parseId2NS(self, id):
+   def _parseId2NS(self, id, needNSO=False):
       stopwatch=self.stopwatch('_parseId2NS@DBNamespaced')
       res=self.namespace_pattern_parse.search(id)
       if res is None:
@@ -109,6 +154,9 @@ class DBNamespaced(DBBase):
             res=(None, None)
       else:
          res=(res.group(1), res.group(2))
+      if needNSO:
+         ns, nsMap=res[0], self.__ns
+         res+=(nsMap[ns] if (ns is not None and ns in nsMap) else None,)
       stopwatch()
       return res
 
@@ -124,15 +172,24 @@ class DBNamespaced(DBBase):
       stopwatch()
       return id
 
-   def _namespaceChanged(self, name, setts, old):
+   def ids2ns_generator(self, ids):
+      assert isinstance(ids, (tuple, list))
+      for id in ids:
+         ns, nsi, nso=self._parseId2NS(id, needNSO=True)
+         yield (id, ns, nsi, nso)
+
+   def ids2ns(self, ids):
+      return tuple(self.ids2ns_generator(ids))
+
+   def _namespaceChanged(self, ns, nsoNow, nsoOld):
       pass
 
    def configureNS(self, config, andClear=True, keyMap=None):
       if andClear:
          old=self.__ns.copy()
          self.__ns.clear()
-         for ns, oldSetts in old.iteritems():
-            self._namespaceChanged(ns, None, oldSetts)
+         for ns, nsoOld in old.iteritems():
+            self._namespaceChanged(ns, None, nsoOld)
       #! добавить поддержку разных форматов конфига с авто-конвертом в дефолтный
       keyMap=keyMap or self._settings['ns_config_keyMap']
       tArr1=[]
@@ -160,14 +217,14 @@ class DBNamespaced(DBBase):
       if child is not None:
          child=child if isTuple(child) else (tuple(child) if isList(child) else [child])
       nsMap=self.__ns
-      oldSetts={}
+      nsoOld={}
       if ns in nsMap:
-         oldSetts=nsMap[ns]
-      setts={'parent':parent, 'child':child, 'onlyIndexed':onlyIndexed, 'maxIndex':oldSetts.get('maxIndex', 0)}
-      setts.update(kwargs)  # позволяет хранить в namespace дополнительные данные
-      if not oldSetts or oldSetts!=setts:
-         nsMap[ns]=setts
-         self._namespaceChanged(ns, setts, oldSetts)
+         nsoOld=nsMap[ns]
+      nsoNow={'parent':parent, 'child':child, 'onlyIndexed':onlyIndexed, 'maxIndex':nsoOld.get('maxIndex', 0)}
+      nsoNow.update(kwargs)  # позволяет хранить в namespace дополнительные данные
+      if not nsoOld or nsoOld!=nsoNow:
+         nsMap[ns]=nsoNow
+         self._namespaceChanged(ns, nsoNow, nsoOld)
          if allowCheckIndex and self._settings['ns_checkIndexOnUpdateNS']: self._checkIndexForNS(calcMaxIndex=ns)
 
    def delNS(self, ns, strictMode=True, allowCheckIndex=True):
@@ -178,8 +235,8 @@ class DBNamespaced(DBBase):
          if strictMode:
             raise StrictModeError('Namespace "%s" not exist'%ns)
          return
-      setts=nsMap.pop(ns)
-      self._namespaceChanged(ns, None, setts)
+      nso=nsMap.pop(ns)
+      self._namespaceChanged(ns, None, nso)
       if allowCheckIndex and self._settings['ns_checkIndexOnUpdateNS']: self._checkIndexForNS(calcMaxIndex=False)
 
    def _validateOnSetNS(self, ids, data, lastId, nsPrev, nsoPrev, nsMap, **kwargs):
@@ -243,15 +300,28 @@ class DBNamespaced(DBBase):
       nsNow, nsi, nsoNow=self._validateOnSetNS(ids, data, lastId, nsPrev, nsoPrev, nsMap, isExist=isExist, props=props, allowMerge=allowMerge, **kwargs)
       if 'backlink' in props and props['backlink']:
          # also checking namespace-rules for backlinks
-         tQueue=deque(props['backlink'])
-         while tQueue:
-            ids2=tQueue.pop()
-            isExist2, props2, _=self._findInIndex(ids2, strictMode=True, calcProperties=False, skipLinkChecking=True)
-            nsPrev2=self._parseId2NS(ids2[-2])[0] if len(ids2)>1 else None
+         _queue=deque(props['backlink'])
+         _queuePop=_queue.pop
+         _queueExtend=_queue.extend
+         _findInIndex=self._findInIndex
+         _parseId2NS=self._parseId2NS
+         _validateOnSetNS=self._validateOnSetNS
+         while _queue:
+            ids2=_queuePop()
+            badLinkChain=[]
+            try:
+               isExist2, props2, _=_findInIndex(ids2, strictMode=True, calcProperties=False, skipLinkChecking=True, needChain=badLinkChain)
+            except BadLinkError:
+               # удаляем плохой линк
+               #? почему здесь полное удаление, а не через прощенный вариант как в `self.set()`
+               for _ids, _props in reversed(badLinkChain):
+                  self.set(_ids, None, existChecked=_props, allowForceRemoveChilds=True)
+               continue
+            nsPrev2=_parseId2NS(ids2[-2])[0] if len(ids2)>1 else None
             nsoPrev2=nsMap[nsPrev2] if (nsPrev2 and nsPrev2 in nsMap) else None
-            self._validateOnSetNS(ids2, data, ids2[-1], nsPrev2, nsoPrev2, nsMap, isExist=isExist2, props=props2, allowMerge=allowMerge, **kwargs)
+            _validateOnSetNS(ids2, data, ids2[-1], nsPrev2, nsoPrev2, nsMap, isExist=isExist2, props=props2, allowMerge=allowMerge, **kwargs)
             if 'backlink' in props2 and props2['backlink']:
-               tQueue.extend(props2['backlink'])
+               _queueExtend(props2['backlink'])
       # all checkings passed
       ids=tuple(ids)
       needReplaceMaxIndex=(nsoNow and nsi and data is not None and data is not False and isinstance(nsi, int))

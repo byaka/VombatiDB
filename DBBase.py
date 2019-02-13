@@ -1,20 +1,17 @@
 # -*- coding: utf-8 -*-
-import signal, atexit
-from utils import *
-
 __ver_major__ = 0
-__ver_minor__ = 1
+__ver_minor__ = 2
 __ver_patch__ = 0
 __ver_sub__ = "dev"
 __version__ = "%d.%d.%d" % (__ver_major__, __ver_minor__, __ver_patch__)
 """
 :authors: John Byaka
-:copyright: Copyright 2018, Buber
+:copyright: Copyright 2019, Buber
 :license: Apache License 2.0
 
 :license:
 
-   Copyright 2018 Buber
+   Copyright 2019 Buber
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -27,11 +24,15 @@ __version__ = "%d.%d.%d" % (__ver_major__, __ver_minor__, __ver_patch__)
    limitations under the License.
 """
 
+import signal, atexit
+from utils import *
+
 #? баблинг Props сквозь ссылки (sprout)
 
 class DBBase(object):
+   version=__version__
+
    def __init__(self, workspace, *args, **kwargs):
-      self.version=__version__
       self._main_app=sys.modules['__main__']
       self.inited=False
       self.workspace=workspace
@@ -191,11 +192,20 @@ class DBBase(object):
          res['speedstatsFlat'][name]=tuple(res['speedstatsFlat'][name][i]+s if i else max(res['speedstatsFlat'][name][i], s) for i,s in enumerate(val))
       return res
 
-   def getProps(self):
-      #! сделать этот метод специальным и переименовать, ибо возникает ассоциация что он возвращает `props` обьекта
+   def _getPropMap(self):
       return copy.deepcopy(self.__propMap), copy.deepcopy(self.__propCompiled)
 
    def _regProp(self, name, default=None, inherit=False, needed=False, bubble=False, persistent=False):
+      """
+      ...
+
+      :param str name:
+      :param any|None default: Дефолтное значение для новых или пустых `props`.
+      :param bool|func|and+|+and|and|or+|+or|or inherit: Задает правило наследования значения от родителей к детям.
+      :param bool needed: Является ли данная `prop` обязательной при создании обьекта. Если задан также `default`, будет создано автоматически если не указано явно.
+      :param bool|func bubble: Задает правило всплытия значения от детей к родителям.
+      :param bool persistent: Указывает, что данная `prop` должна сохраняться "на диск". Данная возможность реализуется не ядром, а бекендом хранения.
+      """
       if self.inited:
          raise RuntimeError('Registering of property not allowed, when DB already inited')
       assert isStr(name), 'Name must be string'
@@ -274,10 +284,9 @@ class DBBase(object):
       tQueue=deque((ids, ))
       _tQueueAppend=tQueue.append
       _tQueuePop=tQueue.popleft
-      _root=self.__index
       while tQueue:
          ids=_tQueuePop()
-         branch=_root
+         branch=self.__index
          props=None
          for id in ids:
             if id not in branch:
@@ -305,6 +314,7 @@ class DBBase(object):
       return (res, props) if calcProperties else res
 
    def _initPreExit(self):
+      #! перенести функцию в funxtionsex
       atexit.register(self.close)
       def tFunc(sigId, stack, self_close=self.close, old=None):
          self_close()
@@ -346,17 +356,19 @@ class DBBase(object):
       self._initMeta()
       self._initIndex()
 
-   def _markInIndex(self, ids, strictMode=True, _changes=None, **props):
+   def _markInIndex(self, ids, strictMode=True, createNotExisted=False, skipBacklinking=False, _changes=None, **propsUpdate):
       stopwatch=self.stopwatch('_markInIndex@DBBase')
       iLast=len(ids)-1
       propRules=self.__propCompiled
       propMerger=propRules['mergerBubble'] if propRules['bubble'] else False
+      stopwatch1=self.stopwatch('_markInIndex.prepProps@DBBase')
       for k in propRules['needed']:
-         if k in props: continue
+         if k in propsUpdate: continue
          if k not in propRules['default']:
             stopwatch()
             raise ValueError('Property "%s" missed and no default value: %s'%(k, ids))
-         props[k]=propRules['default'][k]
+         propsUpdate[k]=propRules['default'][k]
+      stopwatch1()
       #
       if _changes is None or _changes is False or not isinstance(_changes, dict): _changes=None
       branch=self.__index
@@ -367,24 +379,37 @@ class DBBase(object):
          ids2=ids[:i+1]
          if i==iLast:
             if isExist:
-               if not props: pass
-               elif _changes is None:
-                  branch[id][0].update(props)
-               else:
-                  tDiff={}
-                  dictMergeEx(branch[id][0], props, modify=True, recursive=False, changedCB=tDiff, changedCBPassValues=1)
-                  if tDiff:
-                     _changes[ids2]=tDiff
+               if propsUpdate:
+                  _oldLink=branch[id][0]['link'] if 'link' in propsUpdate and 'link' in branch[id][0] else None
+                  stopwatch1=self.stopwatch('_markInIndex.mergeProps@DBBase')
+                  if _changes is None:
+                     branch[id][0].update(propsUpdate)
+                  else:
+                     tDiff={}
+                     dictMergeEx(branch[id][0], propsUpdate, modify=True, recursive=False, changedCB=tDiff, changedCBPassValues=1)
+                     if tDiff:
+                        _changes[ids2]=tDiff
+                  stopwatch1()
+                  # detect changes of link
+                  if 'link' in propsUpdate and branch[id][0]['link']!=_oldLink:
+                     try: self._linkModified(ids, branch[id][0], branch[id][1], True, _oldLink, skipBacklinking=skipBacklinking)
+                     except StrictModeError:
+                        if strictMode: raise
             else:
-               if not props: branch[id]=({}, {})
+               if not propsUpdate: branch[id]=({}, {})
                else:
-                  tCopy=props.copy()
+                  tCopy=propsUpdate.copy()
                   branch[id]=(tCopy, {})
                   if _changes is not None: _changes[ids2]=tCopy
+                  # detect changes of link
+                  if 'link' in propsUpdate:
+                     try: self._linkModified(ids, branch[id][0], branch[id][1], False, None, skipBacklinking=skipBacklinking)
+                     except StrictModeError:
+                        if strictMode: raise
             stopwatch()
             return isExist
          elif not isExist:
-            if strictMode:
+            if strictMode or not createNotExisted:
                stopwatch()
                raise ParentNotExistError('"%s" for %s'%(ids2, ids))
             elif propRules['defaultMinimalProps'] is None:
@@ -394,15 +419,17 @@ class DBBase(object):
             propsCurrent=propRules['defaultMinimalProps'].copy()
             branch[id]=(propsCurrent, {})
          # and now bubbling props if needed (also for missed parents in non-strict mode)
-         if propMerger and props:
+         if propMerger and propsUpdate:
+            stopwatch1=self.stopwatch('_markInIndex.bubblingProps@DBBase')
             tDiff=None if _changes is None else {}
-            propMerger(propsCurrent, props, cbArgs=(ids2,), changedCB=tDiff)
+            propMerger(propsCurrent, propsUpdate, cbArgs=(ids2,), changedCB=tDiff)
             if tDiff:
                _changes[ids2]=tDiff
+            stopwatch1()
          branch=branch[id][1]
-         stopwatch()
+      stopwatch()
 
-   def _unmarkInIndex(self, ids, _changes=None, **props):
+   def _unmarkInIndex(self, ids, skipBacklinking=False, _changes=None, propsOld=None, **propsUpdate):
       stopwatch=self.stopwatch('_unmarkInIndex@DBBase')
       iLast=len(ids)-1
       propRules=self.__propCompiled
@@ -412,27 +439,77 @@ class DBBase(object):
       for i, id in enumerate(ids):
          if i==iLast: break
          if id not in branch:
-            stopwatch()
-            return None
+            branch=None
+            break
          # and now bubbling props if needed (also for missed parents in non-srict mode)
-         if propMerger and props:
+         if propMerger and propsUpdate:
+            stopwatch1=self.stopwatch('_unmarkInIndex.bubblingProps@DBBase')
             ids2=ids[:i+1]
             #? плохо, что в данном случае баблинг происходит даже если удаляемого обьекта несуществует, ибо проверка на его наличие идет позже
             tDiff=None if _changes is None else {}
-            propMerger(branch[id][0], props, cbArgs=(ids2,), changedCB=tDiff)
+            propMerger(branch[id][0], propsUpdate, cbArgs=(ids2,), changedCB=tDiff)
             if tDiff:
                _changes[ids2]=tDiff
+            stopwatch1()
          branch=branch[id][1]
-      if ids[-1] not in branch:
+      if branch is None or ids[-1] not in branch:
+         if propsOld is not None and 'link' in propsOld and propsOld['link']:
+            self._linkModified(ids, None, None, True, propsOld['link'], skipBacklinking=skipBacklinking)
          stopwatch()
          return False
+      _oldLink=branch[ids[-1]][0].get('link', None)
       del branch[ids[-1]]
+      if _oldLink:
+         self._linkModified(ids, None, None, True, _oldLink, skipBacklinking=skipBacklinking)
       stopwatch()
       return True
 
-   def iterBacklink(self, ids, props=None, recursive=True, treeMode=True, safeMode=True, calcProperties=True, strictMode=True):
+   def _linkModified(self, ids, props, branch, wasExisted, oldLink, skipBacklinking=False):
+      _status=None
+      if skipBacklinking: return _status
+      elif branch is None or props['link'] is None:
+         if not oldLink: return _status
+         _del, _add=oldLink, None  # ссылка была удалена
+         _status='REMOVED'
+      elif not oldLink:
+         _del, _add=None, props['link']  # ссылка была создана
+         _status='CREATED'
+      else:
+         if oldLink==props['link']: return _status  # защита на всякий случай
+         _del, _add=oldLink, props['link']  # ссылка была изменена
+         _status='EDITED'
+      #
+      if _del is not None:
+         stopwatch=self.stopwatch('_linkModified.backlinkDel@DBBase')
+         isExist, o, _=self._findInIndex(_del, strictMode=True, calcProperties=False)
+         if isExist and 'backlink' in o and o['backlink'] and ids in o['backlink']:
+            if len(o['backlink'])==1: backlinkNew=set()
+            else:
+               backlinkNew=o['backlink'].copy()
+               backlinkNew.remove(ids)
+            self._markInIndex(_del, backlink=backlinkNew)
+         stopwatch()
+      if _add is not None:
+         stopwatch=self.stopwatch('_linkModified.backlinkAdd@DBBase')
+         isExist, o, _=self._findInIndex(_add, strictMode=True, calcProperties=False)
+         if not isExist:
+            raise NotExistError(_add)
+         else:
+            if 'backlink' not in o: backlinkNew=set((ids,))
+            elif ids not in o['backlink']:
+               backlinkNew=o['backlink'].copy()
+               backlinkNew.add(ids)
+            else:
+               stopwatch()
+               return _status
+            self._markInIndex(_add, backlink=backlinkNew)
+         stopwatch()
+      return _status
+
+   def iterBacklink(self, ids, props=None, recursive=True, treeMode=True, safeMode=True, calcProperties=True, strictMode=True, allowContextSwitch=True):
       mytime=timetime()
       if props is None:
+         #! добавить сюда код из iterBranch()
          isExist, props, _=self._findInIndex(ids, strictMode=True, calcProperties=calcProperties)
          if not isExist:
             if strictMode:
@@ -441,7 +518,7 @@ class DBBase(object):
                raise StopIteration
       if not props or 'backlink' not in props or not props['backlink']:
          raise StopIteration
-      _soLong=self._settings['iterBranch_soLong']
+      _soLong=self._settings['iterBranch_soLong'] if allowContextSwitch else False
       _sleepTime=self._settings['iterBranch_sleepTime']
       _sleep=self.workspace.server._sleep
       _timetime=timetime
@@ -479,9 +556,9 @@ class DBBase(object):
             else:
                _queueAppend((iterBacklinkCurrent, backlinkCurrent))
 
-   def iterBranch(self, ids=None, recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True, skipLinkChecking=False):
+   def iterBranch(self, ids=None, recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True, skipLinkChecking=False, allowContextSwitch=True):
       mytime=timetime()
-      _soLong=self._settings['iterBranch_soLong']
+      _soLong=self._settings['iterBranch_soLong'] if allowContextSwitch else False
       _sleepTime=self._settings['iterBranch_sleepTime']
       _sleep=self.workspace.server._sleep
       _timetime=timetime
@@ -492,7 +569,14 @@ class DBBase(object):
       propMerger=propRules['mergerInherit'] if calcProperties and propRules['inheritCBMap'] else False
       if ids is not None:
          # searching enter-point and calc props if needed
-         isExist, propsPre, branchCurrent=self._findInIndex(ids, strictMode=True, calcProperties=propMerger, offsetLast=offsetLast)
+         badLinkChain=[]
+         try:
+            isExist, propsPre, branchCurrent=self._findInIndex(ids, strictMode=True, calcProperties=propMerger, offsetLast=offsetLast, needChain=badLinkChain)
+         except BadLinkError:
+            # удаляем плохой линк
+            for _ids, _props in reversed(badLinkChain):
+               self.set(_ids, None, existChecked=_props, allowForceRemoveChilds=True)
+            raise StopIteration
          if not isExist:
             raise StopIteration
          if offsetLast: ids=ids[:-1]
@@ -549,8 +633,7 @@ class DBBase(object):
       if propMerger and propRules['defaultMinimalProps'] is not None:
          tArr1=propRules['defaultMinimalProps'].copy()
       else: tArr1={}
-      _root=self.__index
-      res=[None, tArr1, _root]
+      res=[None, tArr1, self.__index]
       if propMerger:
          propsQueue=[None]*iLast
       if needChain is False or needChain is None or not isinstance(needChain, list):
@@ -563,8 +646,7 @@ class DBBase(object):
          if offsetLast and i==iLast: break
          if id is None and i==iLast:
             # айди не указан, используется при автоматической генерации айди
-            res[0]=None
-            res[1], res[2]={}, None
+            res[0], res[1], res[2]=None, {}, None
             break
          if id not in res[2]:
             if i==iLast: res[0]=False
@@ -584,6 +666,7 @@ class DBBase(object):
          if propMerger:
             propsQueue[i]=res[1]
          res[1]=propsCurrent
+         #? нужно протестировать новый механизм наследования, смотри issue#32
          # if propMerger and res[1]:
          #    propsParrent, res[1]=res[1], propsCurrent.copy() if propsCurrent else {}
          #    propMerger(res[1], propsParrent, cbArgs=(ids[:i+1],))
@@ -667,7 +750,7 @@ class DBBase(object):
       return r
 
    def _validateOnSet(self, ids, data, isExist=None, props=None, allowMerge=None, propsUpdate=None, **kwargs):
-      # хук, позволяющий проверить или модефицировать данные (и Props) перед их добавлением
+      # хук, позволяющий проверить или модифицировать данные (и Props) перед их добавлением
       return isExist, data, allowMerge
 
    def set(self, ids, data, allowMerge=True, existChecked=None, propsUpdate=None, allowForceRemoveChilds=True, onlyIfExist=None, strictMode=False, **kwargs):
@@ -693,33 +776,15 @@ class DBBase(object):
             raise ExistStatusMismatchError('expected "isExist=%s" for %s'%(onlyIfExist, ids))
          return None
       if data is not True and 'link' in props and props['link']: propsUpdate['link']=None
-      #
-      _backlinkDel, _oldLink, _backlinkAdd, _newLink=False, None, False, None
+      # если создается ссылка, проверяем существование обьекта
       if 'link' in propsUpdate:
          stopwatch1=self.stopwatch('set.fixLink@DBBase')
-         _newLink=propsUpdate['link']
-         if 'link' in props and props['link']:
-            _oldLink=props['link']
-            if _oldLink==_newLink:
-               del propsUpdate['link']
-            else:
-               if _newLink is not None:
-                  try:
-                     badLinkChain=[]
-                     self.resolveLink(_newLink, needChain=badLinkChain.append, idsPrepared=True, needChainIsFunc=True)
-                  except BadLinkError, e:
-                     # удаляем плохой линк
-                     for ids, props in reversed(badLinkChain):
-                        self.set(ids, None, existChecked=props, allowForceRemoveChilds=True)
-                     stopwatch1()
-                     stopwatch()
-                     raise e
-                  _backlinkAdd=True
-               _backlinkDel=True
-         elif _newLink is not None:
+         if 'link' in props and props['link'] and props['link']==propsUpdate['link']:
+            del propsUpdate['link']
+         elif propsUpdate['link'] is not None:
             try:
                badLinkChain=[]
-               self.resolveLink(_newLink, needChain=badLinkChain.append, idsPrepared=True, needChainIsFunc=True)
+               self.resolveLink(propsUpdate['link'], needChain=badLinkChain.append, idsPrepared=True, needChainIsFunc=True)
             except BadLinkError, e:
                # удаляем плохой линк
                for ids, props in reversed(badLinkChain):
@@ -727,7 +792,6 @@ class DBBase(object):
                stopwatch1()
                stopwatch()
                raise e
-            _backlinkAdd=True
          stopwatch1()
       #
       isExist, data, allowMerge=self._validateOnSet(ids, data, isExist=isExist, props=props, allowMerge=allowMerge, propsUpdate=propsUpdate)
@@ -736,49 +800,24 @@ class DBBase(object):
          return ids
       elif data is not False:
          tArr=((ids, (isExist, data, allowMerge, props, propsUpdate)),)
-         self._set(tArr, **kwargs)
+         self._setData(tArr, **kwargs)
       if data is None:
          if self._settings['force_removeChilds'] and allowForceRemoveChilds:
-            stopwatch1=self.stopwatch('set.removeChilds@DBBase')
-            cNeedProps=self._settings['force_removeChilds_calcProps']
-            _backlinkDelMap=defaultdict(list)
-            _backlinkIgnoreMap=set()
             # принудительно удаляем детей, чтобы избежать конфликта при повторном использовании техже имен
-            for idsC, (propsC, l) in self.iterBranch(ids=ids, recursive=True, treeMode=False, safeMode=True, calcProperties=cNeedProps):
-               tArr=((idsC, (True, None, False, propsC, {})),)
-               self._set(tArr, **kwargs)
-               if 'link' in propsC and propsC['link'] and propsC['link'] not in _backlinkIgnoreMap:
-                  _backlinkDelMap[propsC['link']].append(idsC)
-               _backlinkIgnoreMap.add(idsC)
-               if idsC in _backlinkDelMap:
-                  del _backlinkDelMap[idsC]
-            # updating back-link for sub-branches
-            for ids1, tArr1 in _backlinkDelMap.iteritems():
-               tArr=self._findInIndex(ids1, strictMode=True, calcProperties=False)[1]['backlink']
-               for s in tArr1: tArr.remove(s)
-               self._markInIndex(ids1, backlink=tArr)
+            stopwatch1=self.stopwatch('set.removeChilds@DBBase')
+            for _ids, (_props, _) in self.iterBranch(ids=ids, recursive=True, treeMode=True, safeMode=True, skipLinkChecking=True, calcProperties=self._settings['force_removeChilds_calcProps'], allowContextSwitch=False):  # noqa: E501
+               tArr=((_ids, (True, None, False, _props, {})),)
+               self._setData(tArr, **kwargs)
+               self._unmarkInIndex(_ids, propsOld=_props)
+               #~ такой подход к удалению является серьезной оптимизацией, однако эту особенность нужно иметь ввиду при разработке расширений
             stopwatch1()
          self._unmarkInIndex(ids, **propsUpdate)
       elif not isExist or propsUpdate:
          self._markInIndex(ids, **propsUpdate)
-      # updating back-link
-      if _backlinkAdd:
-         stopwatch1=self.stopwatch('set.backlinkAdd@DBBase')
-         tArr=self._findInIndex(_newLink, strictMode=True, calcProperties=False)[1]
-         tArr=tArr['backlink'] if 'backlink' in tArr else set()
-         tArr.add(ids)
-         self._markInIndex(_newLink, backlink=tArr)
-         stopwatch1()
-      if _backlinkDel:
-         stopwatch1=self.stopwatch('set.backlinkDel@DBBase')
-         tArr=self._findInIndex(_oldLink, strictMode=True, calcProperties=False)[1]['backlink']
-         tArr.remove(ids)
-         self._markInIndex(_oldLink, backlink=tArr)
-         stopwatch1()
       stopwatch()
       return ids
 
-   def _set(self, items, **kwargs):
+   def _setData(self, items, **kwargs):
       pass
 
    def get(self, ids, existChecked=None, returnRaw=False, strictMode=False, **kwargs):
@@ -806,11 +845,11 @@ class DBBase(object):
             stopwatch()
             raise StrictModeError(e)
          # удаляем плохой линк
-         for ids, props in reversed(badLinkChain):
-            self.set(ids, None, existChecked=props, allowForceRemoveChilds=True)
+         for _ids, _props in reversed(badLinkChain):
+            self.set(_ids, None, existChecked=_props, allowForceRemoveChilds=True)
          stopwatch()
          return None
-      res=self._get(ids, props, **kwargs)
+      res=self._getData(ids, props, **kwargs)
       if res is not True and not returnRaw:
          if self._settings['return_frozen']:
             res=MagicDictCold(res)
@@ -820,7 +859,7 @@ class DBBase(object):
       stopwatch()
       return res
 
-   def _get(self, ids, props, **kwargs):
+   def _getData(self, ids, props, **kwargs):
       pass
 
    def truncate(self, **kwargs):
