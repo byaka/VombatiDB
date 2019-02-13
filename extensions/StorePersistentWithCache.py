@@ -1,8 +1,34 @@
 # -*- coding: utf-8 -*-
+__ver_major__ = 0
+__ver_minor__ = 2
+__ver_patch__ = 0
+__ver_sub__ = "dev"
+__version__ = "%d.%d.%d" % (__ver_major__, __ver_minor__, __ver_patch__)
+"""
+:authors: John Byaka
+:copyright: Copyright 2019, Buber
+:license: Apache License 2.0
+
+:license:
+
+   Copyright 2019 Buber
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+"""
+
 from ..utils import *
 from ..DBBase import DBBase
 from gevent.fileobject import FileObjectThread as geventFileObject
 import gc
+from collections import Counter
 
 def __init():
    return DBStorePersistentWithCache, ('DBStorePersistentWithCache', 'StorePersistentWithCache')
@@ -27,6 +53,7 @@ class DBStorePersistentWithCache(DBBase):
          'loaded':False,
          'writeCount':0,
       })
+      self.__skip_saveChanges=False
       self.__data_lock=RLock()
       self.__meta_lock=RLock()
       self.__flushQueue={}
@@ -104,6 +131,8 @@ class DBStorePersistentWithCache(DBBase):
       mytime=getms(inMS=True)
       fn, fp, fExist=self._checkFileFromStore('data')
       if not fExist: return None
+      self.__skip_saveChanges=True
+      notCreatedQueue={}
       backlinkQueue=defaultdict(set)
       with open(fp, 'rU') as f:
          curKeyLen, maxKeyLen=1, 1
@@ -126,17 +155,19 @@ class DBStorePersistentWithCache(DBBase):
                   ids=_ids
                elif props is None:
                   props={} if not line else pickle.loads(line.decode('string_escape'))
-                  props.pop('backlink', None)  # fix old db-versions
+                  props.pop('backlink', None)  # fixing old db-versions
                   if ids in backlinkQueue:
                      props['backlink']=backlinkQueue.pop(ids)
                else:
                   try:
                      if line=='-':
-                        self._unmarkInIndex(ids, _skipFlushing=True, **props)
+                        self._unmarkInIndex(ids, **props)
+                        notCreatedQueue[ids]=0
                      else:
-                        isExist=self._markInIndex(ids, strictMode=True, _skipFlushing=True, **props)
-                  except StrictModeError:
-                     self.workspace.log(2, 'Branch %s skipped due some parents not exist'%(ids,))
+                        isExist=self._markInIndex(ids, strictMode=True, skipBacklinking=True, **props)
+                  except ParentNotExistError:
+                     if line!='-':
+                        notCreatedQueue[ids]=1
                   else:
                      if line=='-':
                         allowMerge, data=False, None
@@ -146,7 +177,7 @@ class DBStorePersistentWithCache(DBBase):
                         allowMerge, data=(True, line[1:]) if line and line[0]=='+' else (False, line)
                         data=pickle.loads(data.decode('string_escape')) if data else {}
                      tArr=((ids, (isExist, data, allowMerge, props, {})),)
-                     self._set(tArr, _skipFlushing=True)
+                     self._setData(tArr)
                      if 'link' in props:
                         ids2=props['link']
                         isExist2, props2, _=self._findInIndex(ids2, strictMode=False, calcProperties=False, skipLinkChecking=True)
@@ -160,25 +191,33 @@ class DBStorePersistentWithCache(DBBase):
                   #
                   ids, props=None, None
             curKeyLen+=1
+      #
+      if any(notCreatedQueue.itervalues()):
+         if strictMode:
+            raise ParentNotExistError('(unknown) for %s'%(next(notCreatedQueue.iterkeys()),))
+         for ids in notCreatedQueue:
+            self.workspace.log(2, 'Branch %s skipped due some parents not exist'%(ids,))
       self.workspace.log(3, 'Loaded Data from fs-store in %ims'%(getms(inMS=True)-mytime))
       toBackup[fn]=(open, fp)
       toRemove[fn]=True
+      self.__skip_saveChanges=False
       return 1
 
-   def _markInIndex(self, ids, _changes=None, _skipFlushing=False, **props):
+   def _markInIndex(self, ids, _changes=None, **kwargs):
       if _changes is not None:
          raise NotImplementedError
-      _changes={} if not _skipFlushing else None
-      r=super(DBStorePersistentWithCache, self)._markInIndex(ids, _changes=_changes, **props)
+      _changes={} if not self.__skip_saveChanges else None
+      r=super(DBStorePersistentWithCache, self)._markInIndex(ids, _changes=_changes, **kwargs)
       if _changes:
          stopwatch=self.stopwatch('_markInIndex@DBStorePersistentWithCache')
+         _flushQueue=self.__flushQueue
          # сохраняем в очередь все Props, а на этапе сохранения отфильтруем персистентные
          for ids, tDiff in _changes.iteritems():
-            if ids not in self.__flushQueue:
+            if ids not in _flushQueue:
                t=timetime()
-               self.__flushQueue[ids]=[tDiff, False, t, t]
+               _flushQueue[ids]=[tDiff, False, t, t]
             else:
-               o=self.__flushQueue[ids]
+               o=_flushQueue[ids]
                if o[0]:
                   o[0].update(tDiff)
                else:
@@ -187,20 +226,21 @@ class DBStorePersistentWithCache(DBBase):
          stopwatch()
       return r
 
-   def _unmarkInIndex(self, ids, _changes=None, _skipFlushing=False, **kwargs):
+   def _unmarkInIndex(self, ids, _changes=None, **kwargs):
       if _changes is not None:
          raise NotImplementedError
-      _changes={} if not _skipFlushing else None
+      _changes={} if not self.__skip_saveChanges else None
       r=super(DBStorePersistentWithCache, self)._unmarkInIndex(ids, _changes=_changes, **kwargs)
       if _changes:
          stopwatch=self.stopwatch('_unmarkInIndex@DBStorePersistentWithCache')
+         _flushQueue=self.__flushQueue
          # сохраняем в очередь все Props, а на этапе сохранения отфильтруем персистентные
          for ids, tDiff in _changes.iteritems():
-            if ids not in self.__flushQueue:
+            if ids not in _flushQueue:
                t=timetime()
-               self.__flushQueue[ids]=[tDiff, False, t, t]
+               _flushQueue[ids]=[tDiff, False, t, t]
             else:
-               o=self.__flushQueue[ids]
+               o=_flushQueue[ids]
                if o[0]:
                   o[0].update(tDiff)
                else:
@@ -209,21 +249,23 @@ class DBStorePersistentWithCache(DBBase):
          stopwatch()
       return r
 
-   def _set(self, items, _skipFlushing=False, **kwargs):
-      stopwatch=self.stopwatch('_set@DBStorePersistentWithCache')
+   def _setData(self, items, **kwargs):
+      stopwatch=self.stopwatch('_setData@DBStorePersistentWithCache')
       changes={}
+      _skip_saveChanges=self.__skip_saveChanges
+      _flushQueue=self.__flushQueue
       for ids, (isExist, data, allowMerge, props, propsUpdate) in items:
          if data is not None and data is not True and not isinstance(data, dict):
             stopwatch()
             raise ValueError('Incorrect format for %s'%(ids,))
          tDiff=changes[ids]=self._saveToCache(ids, isExist, data, allowMerge, props, propsUpdate)
-         if _skipFlushing: continue
+         if _skip_saveChanges: continue
          elif tDiff is False: pass
-         elif ids not in self.__flushQueue:
+         elif ids not in _flushQueue:
             t=timetime()
-            self.__flushQueue[ids]=[{}, tDiff, t, t]
+            _flushQueue[ids]=[{}, tDiff, t, t]
          else:
-            o=self.__flushQueue[ids]
+            o=_flushQueue[ids]
             if not isinstance(tDiff, dict) or not o[1] or (o[1] is not self.__c_OBJECT_REPLACED and not isinstance(o[1], dict)): o[1]=tDiff
             elif o[1] is self.__c_OBJECT_REPLACED:
                o[1]=self.__cache[ids]
@@ -234,6 +276,7 @@ class DBStorePersistentWithCache(DBBase):
       return changes
 
    def _saveToCache(self, ids, isExist, data, allowMerge, props, propsUpdate):
+      isExist=isExist and ids in self.__cache
       old=isExist and self.__cache[ids]
       if isExist and old==data:
          return False
@@ -255,7 +298,7 @@ class DBStorePersistentWithCache(DBBase):
          self.__cache[ids]=data
          return self.__c_OBJECT_REPLACED
 
-   def _get(self, ids, props, **kwargs):
+   def _getData(self, ids, props, **kwargs):
       return self.__cache[ids]
 
    def _close(self, *args, **kwargs):
@@ -281,7 +324,7 @@ class DBStorePersistentWithCache(DBBase):
          #
          mytime2=getms(inMS=True)
          self.workspace.log(4, 'Saving Data to fs-store')
-         propRules=self.getProps()[1]
+         propRules=self._getPropMap()[1]
          c=0
          fp=self._checkFileFromStore('data')[1]
          with self.__data_lock, open(fp, 'w') as f:
@@ -292,7 +335,6 @@ class DBStorePersistentWithCache(DBBase):
                   data=self.__cache[ids]
                   if data is None: _data='-'
                   elif data is True: _data='@'
-                  # elif not data and not isinstance(data, dict): _data='+'
                   else:
                      _data=pickle.dumps(data, pickle.HIGHEST_PROTOCOL).encode('string_escape')
                   _props={k:v for k,v in props.iteritems() if k in propRules['persistent']}
@@ -320,7 +362,7 @@ class DBStorePersistentWithCache(DBBase):
             tArr=None
             mytime2=getms(inMS=True)
             self.workspace.log(4, 'Saving Data to fs-store')
-            propRules=self.getProps()[1]
+            propRules=self._getPropMap()[1]
             c=0
             fp=self._checkFileFromStore('data')[1]
             with self.__data_lock, open(fp, 'a+') as f:
@@ -335,7 +377,6 @@ class DBStorePersistentWithCache(DBBase):
                      data=self.__cache[ids]
                      if data is None: _data='-'
                      elif data is True: _data='@'
-                     # elif not data and not isinstance(data, dict): _data='+'
                      else:
                         _data=pickle.dumps(data, pickle.HIGHEST_PROTOCOL).encode('string_escape')
                   #
