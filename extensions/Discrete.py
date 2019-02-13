@@ -1,4 +1,29 @@
 # -*- coding: utf-8 -*-
+__ver_major__ = 0
+__ver_minor__ = 2
+__ver_patch__ = 0
+__ver_sub__ = "dev"
+__version__ = "%d.%d.%d" % (__ver_major__, __ver_minor__, __ver_patch__)
+"""
+:authors: John Byaka
+:copyright: Copyright 2019, Buber
+:license: Apache License 2.0
+
+:license:
+
+   Copyright 2019 Buber
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+"""
+
 from ..utils import *
 from ..DBBase import DBBase
 
@@ -99,9 +124,9 @@ class DBDiscrete(DBBase):
 
    #~ остальные случаи (вроде загрузки из файла) покроются засчет выставленных атрибутов `default` и `needed`
    #? неуверен настчет удаления обьекта - всплывет ли тогда корректно, особенно при удалении битых ссылок про чих специальных кейсах
-   def _set(self, items, **kwargs):
-      changes=super(DBDiscrete, self)._set(items, **kwargs)
-      stopwatch=self.stopwatch('_set@DBDiscrete')
+   def _setData(self, items, **kwargs):
+      changes=super(DBDiscrete, self)._setData(items, **kwargs)
+      stopwatch=self.stopwatch('_setData@DBDiscrete')
       for ids, (isExist, data, allowMerge, props, propsUpdate) in items:
          if not isExist: continue
          if ids not in changes: continue
@@ -121,10 +146,10 @@ class DBDiscrete(DBBase):
       stopwatch()
       return changes
 
-   def _get(self, ids, props, ns=NULL, **kwargs):
+   def _getData(self, ids, props, ns=NULL, **kwargs):
       if ns is NULL:
          ns=self._parseId2NS(ids[-1])
-      res=super(DBDiscrete, self)._get(ids, props, ns=ns, **kwargs)
+      res=super(DBDiscrete, self)._getData(ids, props, ns=ns, **kwargs)
       ns=ns[0]
       if ns is None or ns not in self.__columns or 'discrete' not in self.__columns[ns][-1]:
          return res
@@ -192,23 +217,3 @@ class DBDiscrete(DBBase):
    # def _validateOnSet(self, ids, data, propsUpdate=None, **kwargs):
    #    propsUpdate['branchModified']=True
    #    return super(DBDiscrete, self)._validateOnSet(ids, data, propsUpdate=propsUpdate, **kwargs)
-
-   # def _namespaceChanged(self, name, setts, old):
-   #    if setts is None: pass  # removed
-   #    elif 'columns' not in setts or not setts['columns']:
-   #       self.setColumns(name, None)
-   #    elif isDict(setts['columns']):
-   #       self.setColumns(name, setts['columns'])
-   #    super(DBDiscrete, self)._namespaceChanged(name, setts, old)
-
-   # def _checkIdsNS(self, ids, props=None, **kwargs):
-   #    idsMap=super(DBDiscrete, self)._checkIdsNS(ids, props=props, **kwargs)
-   #    if idsMap and self._settings['columns_checkOnNSHook_allowed']:
-   #       stopwatch=self.stopwatch('_checkIdsNS@DBDiscrete')
-   #       idNow, nsNow, nsi, nsoNow=idsMap[-1]
-   #       if nsoNow and 'columns' in nsoNow:
-   #          data=self.get(ids, existChecked=props, returnRaw=True, strictMode=False)
-   #          if isDict(data):
-   #             self._checkDataColumns(nsNow, nsoNow, ids, data, allowMerge=False)
-   #       stopwatch()
-   #    return idsMap
