@@ -1,19 +1,14 @@
 # -*- coding: utf-8 -*-
-from .utils import *
-from .DBBase import DBBase
-from .extensions import extensions
-from . import errors
-
 """
 This library is an __.
 
 :authors: John Byaka
-:copyright: Copyright 2018, Buber
+:copyright: Copyright 2019, Buber
 :license: Apache License 2.0
 
 :license:
 
-   Copyright 2018 Buber
+   Copyright 2019 Buber
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -25,6 +20,11 @@ This library is an __.
    See the License for the specific language governing permissions and
    limitations under the License.
 """
+
+from .utils import *
+from .DBBase import DBBase
+from .extensions import extensions
+from . import errors
 
 DBExts=MagicDict({})
 DBExtsMap={}
