@@ -1,4 +1,29 @@
 # -*- coding: utf-8 -*-
+__ver_major__ = 0
+__ver_minor__ = 2
+__ver_patch__ = 0
+__ver_sub__ = "dev"
+__version__ = "%d.%d.%d" % (__ver_major__, __ver_minor__, __ver_patch__)
+"""
+:authors: John Byaka
+:copyright: Copyright 2019, Buber
+:license: Apache License 2.0
+
+:license:
+
+   Copyright 2019 Buber
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+"""
+
 import sys, unicodedata
 global PY_V
 PY_V=float(sys.version[:3])
@@ -108,7 +133,11 @@ def showDB(db, branch=None, limit=None):
          break
       lvl=len(ids)-1
       data=db.get(ids, existChecked=props, returnRaw=True)
-      _data=repr(data) if data is not None else 'REMOVED'
+      if data is None:
+         _data, _dataColor='REMOVED', 'red'
+      else:
+         _data=repr(data)
+         _dataColor='yellow' if db.isLink(props) else 'light'
       _props=repr(props)
       o={
          'indent':('  '*(lvl-1)+u'∟ ') if lvl else u'',
@@ -137,7 +166,7 @@ def showDB(db, branch=None, limit=None):
             _data=_data[l2:]
          if tArr and _data:
             tArr.append(_data)
-         o['data']=('%(end)s%(indent3)s%(inverse)s%(light)s'%dict(colors, **o)).join(tArr) if tArr else _data
+         o['data']=(('%(end)s%(indent3)s%(inverse)s%('+_dataColor+')s')%dict(colors, **o)).join(tArr) if tArr else _data
          _dataLastLine='%(indent3)s'%o+tArr[-1] if tArr else leftPart+_data
          # выравнивание `props` по правому краю
          maxSizeProps=min(50, len(_props))
@@ -158,7 +187,7 @@ def showDB(db, branch=None, limit=None):
             o['props']=('%(end)s%(indent3)s%(light)s'%dict(colors, **o)).join(tArr) if tArr else _props
          else:
             o['indent2']=' '*(width-len(_dataLastLine)-len(_props)-1)
-      msg='%(indent)s%(bold)s%(ids)s%(end)s %(inverse)s%(light)s%(data)s%(end)s %(indent2)s%(light)s%(props)s%(end)s'%dict(colors, **o)
+      msg=('%(indent)s%(bold)s%(ids)s%(end)s %(inverse)s%('+_dataColor+')s%(data)s%(end)s %(indent2)s%(light)s%(props)s%(end)s')%dict(colors, **o)
       print msg
       i+=1
    print sep
