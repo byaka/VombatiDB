@@ -157,8 +157,8 @@ class DBSearch_simple(DBBase):
             _MagicDict=MagicDict
             _StrictModeError=StrictModeError
             c=0
-            g=DB.iterBranch(%s, recursive=%s, calcProperties=%s, treeMode=False, safeMode=True)
-            for IDS, (PROPS, CHILDS) in g:
+            g=DB.iterBranch(%s, recursive=%s, calcProperties=%s, treeMode=False, safeMode=True, returnParent=True)
+            for (IDS_PARENT, (PROPS_PARENT, CHILDS_PARENT)), (IDS, (PROPS, CHILDS)) in g:
                ID=IDS[-1]"""%(branch, recursive, calcProperties)]
       _code=code.append
       _indent1=_tab*5

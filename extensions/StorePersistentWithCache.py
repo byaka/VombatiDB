@@ -26,36 +26,35 @@ __version__ = "%d.%d.%d" % (__ver_major__, __ver_minor__, __ver_patch__)
 
 from ..utils import *
 from ..DBBase import DBBase
-from gevent.fileobject import FileObjectThread as geventFileObject
 import gc
-from collections import Counter
 
 def __init():
    return DBStorePersistentWithCache, ('DBStorePersistentWithCache', 'StorePersistentWithCache')
 
 class DBStorePersistentWithCache(DBBase):
    def _init(self, path, *args, **kwargs):
+      self.supports.data=True
       self.supports.inMemoryData=True
       self.supports.detailedDiffData=True
-      self.supports.readableData=True
-      self.supports.writableData=True
       self.supports.persistentData=True
       self.supports.persistentMeta=True
-      self.supports.writableData=True
-      self.supports.picklingProperties=True
+      self.supports.persistentProps=True
+      self.supports.picklingData=True
+      self.supports.picklingMeta=True
+      self.supports.picklingProps=True
       #
-      # self.settings.flushOnChange=False  #! implement
-      self.settings.flushOnExit=True
-      # self.settings.flushAuto=False  #! implement
+      # self.settings.store_flushOnChange=False  #! implement
+      self.settings.store_flushOnExit=True
+      # self.settings.store_flushAuto=False  #! implement
       self.settings.path=path
       self.settings.store_controlGC=True
-      self.___store=MagicDict({
+      self.__store=MagicDict({
          'loaded':False,
          'writeCount':0,
       })
       self.__skip_saveChanges=False
-      self.__data_lock=RLock()
-      self.__meta_lock=RLock()
+      self.__data_lock=self.workspace.rlock()
+      self.__meta_lock=self.workspace.rlock()
       self.__flushQueue={}
       self.__c_OBJECT_REPLACED=object()  # special const for indicate, that object fully replaced
       return super(DBStorePersistentWithCache, self)._init(*args, **kwargs)
@@ -106,7 +105,7 @@ class DBStorePersistentWithCache(DBBase):
       self.workspace.log(3, 'Loading fs-store from "%s" in %ims'%(self._settings['path'], getms(inMS=True)-mytime))
       super(DBStorePersistentWithCache, self)._connect(strictMode=strictMode, **kwargs)
       if _gcWasEnabled: gc.enable()
-      self.___store.loaded=True
+      self.__store.loaded=True
 
    def _checkFileFromStore(self, f):
       if f=='meta': f='meta.dat'
@@ -120,7 +119,9 @@ class DBStorePersistentWithCache(DBBase):
       mytime=getms(inMS=True)
       fn, fp, fExist=self._checkFileFromStore('meta')
       if not fExist: return None
-      data=self.workspace.server._fileGet(fp, silent=False)
+      with open(fp, 'r') as f:
+         f=self.workspace.fileWrap(f)
+         data=f.read()
       self._parseMeta(data)
       self.workspace.log(3, 'Loaded Meta from fs-store in %ims'%(getms(inMS=True)-mytime))
       toBackup[fn]=data
@@ -192,11 +193,11 @@ class DBStorePersistentWithCache(DBBase):
                   ids, props=None, None
             curKeyLen+=1
       #
-      if any(notCreatedQueue.itervalues()):
+      for _ids, isNotOk in notCreatedQueue.iteritems():
+         if not isNotOk: continue
          if strictMode:
-            raise ParentNotExistError('(unknown) for %s'%(next(notCreatedQueue.iterkeys()),))
-         for ids in notCreatedQueue:
-            self.workspace.log(2, 'Branch %s skipped due some parents not exist'%(ids,))
+            raise ParentNotExistError('(unknown) for %s'%(_ids,))
+         self.workspace.log(1, 'Branch %s skipped due some parents not exist'%(_ids,))
       self.workspace.log(3, 'Loaded Data from fs-store in %ims'%(getms(inMS=True)-mytime))
       toBackup[fn]=(open, fp)
       toRemove[fn]=True
@@ -303,7 +304,7 @@ class DBStorePersistentWithCache(DBBase):
 
    def _close(self, *args, **kwargs):
       super(DBStorePersistentWithCache, self)._close(*args, **kwargs)
-      if self._settings['flushOnExit'] and self.___store.loaded:
+      if self._settings['store_flushOnExit'] and self.__store.loaded:
          self.flush(andMeta=True, andData=True, **kwargs)
 
    #! думаю этот метод нужно переименовать, поскольку механизм снапшотов скарее всего будет добавлен в ядро
@@ -328,7 +329,7 @@ class DBStorePersistentWithCache(DBBase):
          c=0
          fp=self._checkFileFromStore('data')[1]
          with self.__data_lock, open(fp, 'w') as f:
-            geventFileObject(f)
+            self.workspace.fileWrap(f)
             for ids, (props, l) in self.iterBranch(treeMode=False, calcProperties=False):
                try:
                   _ids='\t'.join(ids)
@@ -366,7 +367,7 @@ class DBStorePersistentWithCache(DBBase):
             c=0
             fp=self._checkFileFromStore('data')[1]
             with self.__data_lock, open(fp, 'a+') as f:
-               geventFileObject(f)
+               self.workspace.fileWrap(f)
                tArr, self.__flushQueue=self.__flushQueue.copy(), {}
                for ids, (propDiff, dataDiff, timeC, timeM) in tArr.iteritems():
                   if dataDiff is None: _data='-'
@@ -391,7 +392,7 @@ class DBStorePersistentWithCache(DBBase):
                   f.write(line)
                   c+=1
             self.workspace.log(3, 'Saved Data to fs-store (%i items) in %ims'%(c, getms(inMS=True)-mytime2))
-            self.___store.writeCount+=1
+            self.__store['writeCount']+=1
             #! on error we need to dump changes (tArr and self.__flushQueue) somewhere
          self.workspace.log(3, 'Saved changes to fs-store in %ims'%(getms(inMS=True)-mytime))
       finally:
@@ -404,7 +405,7 @@ class DBStorePersistentWithCache(DBBase):
       self.workspace.log(3, 'Dumped meta in %ims'%(getms(inMS=True)-mytime))
       fp=self._checkFileFromStore('meta')[1]
       with self.__meta_lock, open(fp, 'w') as f:
-         geventFileObject(f)
+         self.workspace.fileWrap(f)
          f.write(data)
       self.workspace.log(3, 'Saved Meta to fs-store in %ims'%(getms(inMS=True)-mytime))
 

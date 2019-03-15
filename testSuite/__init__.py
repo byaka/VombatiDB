@@ -4,40 +4,33 @@ import sys, os
 p=os.path.normpath(os.path.realpath(__file__)).split(os.path.sep)
 sys.path.insert(0, os.path.sep.join(p[:-3]))
 m=__import__(p[-3])
-for k in ('VombatiDB', 'showDB', 'showStats'):
+for k in ('VombatiDB', 'showDB', 'showStats', 'Workspace', 'WorkspaceOld', 'errors', 'COLORS', 'IN_TERM', 'DBTestBase', 'DBTestPriority', 'runDBTest', 'DBTESTDEF_extensions', 'DBTESTDEF_settings'):
    globals()[k]=getattr(m, k)
-#
+
 sys.path.append('/var/python/libs/')
 sys.path.append('/var/python/')
 sys.path.append('/home/python/libs/')
 sys.path.append('/home/python/')
-from flaskJSONRPCServer import flaskJSONRPCServer
+
 from functionsex import *
-from logger import LoggerLocal
 
 class ScreendeskTestDB:
    def __init__(self, workspace):
       self.workspace=workspace
       path=getScriptPath(real=True, f=__file__)+'/tmp/db1'
-      self.db=VombatiDB(('NS', 'Columns', 'MatchableLinks', 'StorePersistentWithCache', 'Search'))(self.workspace, path)
-      self.db.settings.flushOnChange=False
-      self.db.settings.columns_default_allowUnknown=False
-      self.db.settings.columns_default_allowMissed=False
-      self.db.settings.dataMerge_ex=True
-      self.db.settings.dataMerge_deep=False
-      self.db.settings.ns_checkIndexOnConnect=False
-      self.db.settings.linkedChilds_default_do=False
-      self.db.settings.linkedChilds_inheritNSFlags=False
-      self.db.connect()
+      self.db=VombatiDB(DBTESTDEF_extensions)(self.workspace, path)
+      for k, v in DBTESTDEF_settings.iteritems():
+         self.db.settings[k]=v
       self.configNS()
+      self.db.connect()
 
    def configNS(self):
       self.db.configureNS([
-      #  (Name, (Parents, Childs, Columns, AllowOnlyIndexed, linkChilds)) # noqa
-         ('tmp', (None, None, None, False)),
+      #  (Name, (Parents, Childs, Columns, AllowOnlyIndexed[True], AllowOnlyNumerable[False], localAutoIncrement[fromSetts], linkChilds[fromSetts])) # noqa
+         ('tmp', (None, None, None, None, None, False)),
          ('user', (None, ['operator', 'project'], {'email':'str', 'name':'str'})),
-         ('operator', (['user', 'project'], ['project'], {'__needed':False, '__allowUnknown':True, 'login':'str'})),
-         ('project', (['user', 'operator'], ['operator'], {'url':'str', 'type':'str'}, True, True)),
+         ('operator', (['user', 'project'], ['project'], {'__needed':False, '__allowUnknown':True, 'login':'str'}, True, True, ['user'])),
+         ('project', (['user', 'operator'], ['operator'], {'url':'str', 'type':'str'}, True, True, ['user'], True)),
       ], andClear=True)
 
    def modifyProp(self, ids, data):
@@ -175,16 +168,16 @@ class ScreendeskTestDB:
    def test(self):
       # self.modifyProp(None, {'branchModified':False})
       self.show()
-      if self.workspace.server._raw_input('Clear DB? ')=='y': self._clearDB()
-      if self.workspace.server._raw_input('Fill DB with new random data? ')=='y':
-         _cUsers=intEx(self.workspace.server._raw_input('Max users: '))
-         _cProjs=intEx(self.workspace.server._raw_input('Max projects: '))
-         _cOps=intEx(self.workspace.server._raw_input('Max operators: '))
+      if self.workspace.raw_input('Clear DB? ')=='y': self._clearDB()
+      if self.workspace.raw_input('Fill DB with new random data? ')=='y':
+         _cUsers=intEx(self.workspace.raw_input('Max users: '))
+         _cProjs=intEx(self.workspace.raw_input('Max projects: '))
+         _cOps=intEx(self.workspace.raw_input('Max operators: '))
          self._fillDB(_cUsers, _cProjs, _cOps)
-      if self.workspace.server._raw_input('Create long chain of links? ')=='y':
-         l=intEx(self.workspace.server._raw_input("Chain's length: "))
+      if self.workspace.raw_input('Create long chain of links? ')=='y':
+         l=intEx(self.workspace.raw_input("Chain's length: "))
          self._makeLongLink(l)
-      if self.workspace.server._raw_input('Run speed-tests? ')=='y':
+      if self.workspace.raw_input('Run speed-tests? ')=='y':
          self.speedtestWrite()
          self.speedtestRead()
 
@@ -230,18 +223,13 @@ class ScreendeskTestDB:
       # self.db.remove(('user1', 'operator4'))
 
       print '\nTEST_ENDED'
-      if self.workspace.server._raw_input('Show data again? ')=='y': self.show()
-      if console.inTerm() and self.workspace.server._raw_input('%(bgmagenta)s%(white)sRun interactive mode?%(end)s '%consoleColor)=='y':
+      if self.workspace.raw_input('Show data again? ')=='y': self.show()
+      if console.inTerm() and self.workspace.raw_input('%(bgmagenta)s%(white)sRun interactive mode?%(end)s '%consoleColor)=='y':
          console.interact(scope=locals())
       showStats(self.db)
 
 if __name__ == '__main__':
    ErrorHandler()
-   workspace=MagicDict()
-   workspace.server=flaskJSONRPCServer(None, gevent=True, log=4, tweakDescriptors=[1000, 1000], experimental=True, controlGC=False)
-   workspace.logger=LoggerLocal(app='VombatiDB-TestSuite', server=workspace.server, maxLevel=4)
-   workspace.logger.settings.allowExternalNull=False
-   workspace.logger.settings.lengthSolong=2048
-   workspace.log=workspace.logger.log
+   workspace=Workspace()
    # start testing
    ScreendeskTestDB(workspace).test()

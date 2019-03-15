@@ -56,10 +56,10 @@ class DBMatchableLinks(DBBase):
    def __isEnabled(self, ids, doDefault=NULL):
       stopwatch=self.stopwatch('__isEnabled@DBMatchableLinks')
       if doDefault is NULL:
-         doDefault=self.settings['linkedChilds_default_do']
+         doDefault=self._settings['linkedChilds_default_do']
       r=True
       if self.supports.get('namespaces'):
-         _inherit=self.settings['linkedChilds_inheritNSFlags']
+         _inherit=self._settings['linkedChilds_inheritNSFlags']
          _inheritCallable=_inherit and callable(_inherit)
          if _inherit:
             doLinkedChilds=True
@@ -108,7 +108,7 @@ class DBMatchableLinks(DBBase):
          stopwatch=self.stopwatch('_linkModified.linkedChilds@DBMatchableLinks')
          _parent=ids[:-1]
          if (doLinkedChilds is None and self.__isEnabled(_parent)) or doLinkedChilds:
-            #? для `_findInIndex()` и `resolveLink()` есть механизм needChain, который позволяет получить всю цепочку ,а не только искомый обьект. полезно иметь тоже самое для `_markInIndex()` и особенно для хука `_linkModified()`
+            #? для `_findInIndex()` есть механизм parentsChain, который позволяет получить всю цепочку, а не только искомый обьект. полезно иметь тоже самое для `_markInIndex()` и особенно для хука `_linkModified()`
             _props=self._findInIndex(_parent, strictMode=True, calcProperties=False, skipLinkChecking=True)[1]
             if 'linkedChilds' not in _props:
                if _status=='CREATED' or _status=='EDITED':

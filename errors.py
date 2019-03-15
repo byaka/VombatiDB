@@ -28,6 +28,9 @@ class BaseDBError(Exception):
    __slots__=()
    pass
 
+class NotSupportedError(BaseDBError):
+   """This ability not supported"""
+
 class BaseDBErrorPrefixed(BaseDBError):
    """Something goes wrong in VambatiDB"""
    __slots__=('msg',)

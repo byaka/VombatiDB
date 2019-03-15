@@ -36,20 +36,39 @@ class NamespaceError(BaseDBErrorPrefixed):
 class NamespaceOrderError(NamespaceError):
    """Incorrect namespaces order"""
 
+class NamespaceUnknownError(NamespaceError):
+   """Unknown namespace"""
+
+class NamespaceGenerateIdError(NamespaceError):
+   """Cant generate ID for namespace"""
+
 class NamespaceIndexError(NamespaceError):
    """Incorrect index"""
 
 class DBNamespaced(DBBase):
    def _init(self, *args, **kwargs):
       res=super(DBNamespaced, self)._init(*args, **kwargs)
-      self._idBadPattern.add(BadPatternStarts('?'))
+      self._idBadPattern.add(BadPatternEnds('?'))
+      self._idBadPattern.add(BadPatternEnds('+'))
       self.supports.namespaces=True
+      self.settings.ns_validateOnDataUpdate=False
+      self.settings.ns_validateOnDataRemove=False
       self.settings.ns_checkIndexOnUpdateNS=True
       self.settings.ns_checkIndexOnConnect=True
-      self.settings.ns_config_keyMap=['parent', 'child', ('onlyIndexed', True)]
+      self.settings.ns_config_keyMap=['parent', 'child', ('onlyIndexed', True), ('onlyNumerable', False), ('localAutoIncrement', None)]
       self.settings.ns_parseId_allowOnlyName=True
+      self.settings.ns_default_allowLocalAutoIncrement=False
+      self.settings.ns_localAutoIncrement_reservation=False
+      self.settings.ns_globalAutoIncrement_reservation=False
       self.namespace_pattern_parse=re.compile(r'^([a-zA-Z_]+)(\d+|[\-\.\s#$@].+)$')
       self.namespace_pattern_check=re.compile(r'^[a-zA-Z_]+$')
+
+      self._regProp('localAutoIncrement', default=None, inherit=False, needed=False, bubble=False, persistent=False)
+      self.supports.prop_localAutoIncrement=True
+      self.supports.generateIdRandom=False
+      self.supports.generateIdAI_local='Use `NS+` instead of id, forexample `("a1", "b1", "c+")`.'
+      self.supports.generateIdAI_global='Use `NS?` instead of id, forexample `("a1", "b1", "c?")`.'
+      self.__LAInc_enabled=[False, set()]  # при изменении NS вычисляется, разрешено ли хоть гдето использование LAInc, а также записывается какие NS их разрешили
       return res
 
    def _initNS(self, data=None):
@@ -61,17 +80,17 @@ class DBNamespaced(DBBase):
 
    def _repareNSConfig(self, keyMap=None):
       keyMap=keyMap or self._settings['ns_config_keyMap']
-      _required=object()
+      NEEDED=object()
       for ns, nso in self.__ns.iteritems():
          for k in keyMap:
             if isString(k):
-               vdef=_required
+               vdef=NEEDED
             elif isTuple(k) and len(k)==2:
                k, vdef=k
             else:
                raise ValueError('Unknown config for Namespaces: %s'%k)
             if k in nso: continue
-            if vdef is _required:
+            if vdef is NEEDED:
                raise KeyError('Missed required config-key for NS(%s)'%ns)
             nso[k]=vdef
 
@@ -80,7 +99,9 @@ class DBNamespaced(DBBase):
       if self._settings['ns_checkIndexOnConnect']:
          if not self.__ns:
             self.workspace.log(2, 'Namespaces not configured!')
-         self._checkIndexForNS(calcMaxIndex=True)
+         else:
+            self.__calcLAInc()
+            self._checkIndexForNS(calcGlobalMaxIndex=True, calcLocalMaxIndex=True)
 
    def _loadedNS(self, data):
       pass
@@ -88,101 +109,6 @@ class DBNamespaced(DBBase):
    def _loadedMeta(self, data):
       self._initNS(data)
       return super(DBNamespaced, self)._loadedMeta(data)
-
-   def _checkIdsNS(self, ids, nsIndexMap=None, props=None, **kwargs):
-      stopwatch=self.stopwatch('_checkIdsNS@DBNamespaced')
-      nsMap=self.__ns
-      if not nsMap: return None
-      tArr=[]
-      nsPrev, nsoPrev=None, None
-      for idNow in ids:
-         nsNow, nsi=self._parseId2NS(idNow)
-         if (nsoPrev and nsoPrev['child'] and (
-            (nsoNow and nsNow not in nsoPrev['child']) or
-            (not nsoNow and None not in nsoPrev['child']))):
-            stopwatch()
-            raise NamespaceOrderError('NS(%s) cant be child of NS(%s)'%(nsNow, nsPrev))
-         nsoNow=None
-         if nsNow and nsNow in nsMap:
-            nsoNow=nsMap[nsNow]
-            if nsIndexMap is not None:
-               nsIndexMap.setdefault(nsNow, [])
-               nsIndexMap[nsNow].append(nsi)
-            if nsoNow['parent'] and (
-               (nsoPrev and nsPrev not in nsoNow['parent']) or
-               (not nsoPrev and None not in nsoNow['parent'])):
-               stopwatch()
-               raise NamespaceOrderError('NS(%s) cant be parent of NS(%s)'%(nsPrev, nsNow))
-         nsPrev, nsoPrev=nsNow, nsoNow
-         tArr.append((idNow, nsNow, nsi, nsoNow))
-      stopwatch()
-      return tArr
-
-   def _checkIndexForNS(self, calcMaxIndex=True):
-      #! разным расширениям зачастую нужен механизм обхода всех обьектов при инициализации. нет смысла делать это раздельно, нужен единый механизм
-      #? однако этаже функция используется при реконфигурации неймспейсов для выполнения валидации.
-      nsMap=self.__ns
-      if not nsMap: return
-      if calcMaxIndex and calcMaxIndex is not True:
-         calcMaxIndex=calcMaxIndex if isList(calcMaxIndex) else (list(calcMaxIndex) if isTuple(calcMaxIndex) else [calcMaxIndex])
-         calcMaxIndex=[ns for ns in calcMaxIndex if ns in nsMap]
-      for ids, (props, l) in self.iterBranch(recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True):
-         tArr={}
-         self._checkIdsNS(ids, nsIndexMap=tArr, props=props, childCount=l)
-         if not calcMaxIndex: continue
-         for ns, iiArr in tArr.iteritems():
-            if calcMaxIndex is not True and ns not in calcMaxIndex: continue
-            nso=nsMap[ns]
-            if not nso['maxIndex']: nso['maxIndex']=0
-            nsiMax=nso['maxIndex']
-            for nsi in iiArr:
-               try: nsi=int(nsi)
-               except (ValueError, TypeError):
-                  if nso['onlyIndexed']:
-                     self.workspace.log(2, 'Incorrect index for id (%s%s)'%(ns, nsi))
-                  continue
-               nsiMax=max(nsiMax, nsi)
-            nso['maxIndex']=nsiMax
-
-   def _parseId2NS(self, id, needNSO=False):
-      stopwatch=self.stopwatch('_parseId2NS@DBNamespaced')
-      res=self.namespace_pattern_parse.search(id)
-      if res is None:
-         if self._settings['ns_parseId_allowOnlyName'] and self.namespace_pattern_check.match(id) is not None:
-            res=(id, None)
-         else:
-            res=(None, None)
-      else:
-         res=(res.group(1), res.group(2))
-      if needNSO:
-         ns, nsMap=res[0], self.__ns
-         res+=(nsMap[ns] if (ns is not None and ns in nsMap) else None,)
-      stopwatch()
-      return res
-
-   def _generateIdNS(self, ns):
-      stopwatch=self.stopwatch('_generateIdNS@DBNamespaced')
-      nsMap=self.__ns
-      if not nsMap or ns not in nsMap: return None
-      nso=nsMap[ns]
-      ii=nso['maxIndex'] or 0
-      ii+=1
-      nso['maxIndex']=ii
-      id='%s%i'%(ns, ii)
-      stopwatch()
-      return id
-
-   def ids2ns_generator(self, ids):
-      assert isinstance(ids, (tuple, list))
-      for id in ids:
-         ns, nsi, nso=self._parseId2NS(id, needNSO=True)
-         yield (id, ns, nsi, nso)
-
-   def ids2ns(self, ids):
-      return tuple(self.ids2ns_generator(ids))
-
-   def _namespaceChanged(self, ns, nsoNow, nsoOld):
-      pass
 
    def configureNS(self, config, andClear=True, keyMap=None):
       if andClear:
@@ -206,7 +132,7 @@ class DBNamespaced(DBBase):
          self.setNS(ns, allowCheckIndex=False, **params)
          tArr1.append(ns)
       if self._settings['ns_checkIndexOnUpdateNS']:
-         self._checkIndexForNS(calcMaxIndex=(True if andClear else tArr1))
+         self._checkIndexForNS(calcGlobalMaxIndex=(True if andClear else tArr1), calcLocalMaxIndex=(True if andClear else tArr1))
 
    def setNS(self, ns, parent=None, child=None, onlyIndexed=True, allowCheckIndex=True, **kwargs):
       if not isString(ns) or not self.namespace_pattern_check.match(ns):
@@ -222,10 +148,23 @@ class DBNamespaced(DBBase):
          nsoOld=nsMap[ns]
       nsoNow={'parent':parent, 'child':child, 'onlyIndexed':onlyIndexed, 'maxIndex':nsoOld.get('maxIndex', 0)}
       nsoNow.update(kwargs)  # позволяет хранить в namespace дополнительные данные
+      for k in self._settings['ns_config_keyMap']:
+         if isTuple(k) and len(k)==2:
+            k, vdef=k
+            if k not in nsoNow:
+               nsoNow[k]=vdef
+      #
+      if nsoNow['localAutoIncrement'] is not None and nsoNow['localAutoIncrement'] is not True and nsoNow['localAutoIncrement'] is not False and isinstance(nsoNow['localAutoIncrement'], (list, tuple, dict, types.GeneratorType)):
+         nsoNow['localAutoIncrement']=set(nsoNow['localAutoIncrement'])
+      if isinstance(nsoNow['localAutoIncrement'], set) and not nsoNow['localAutoIncrement']:
+         nsoNow['localAutoIncrement']=False
+      #
+      self.__calcLAInc(onlyFor=ns)
       if not nsoOld or nsoOld!=nsoNow:
          nsMap[ns]=nsoNow
          self._namespaceChanged(ns, nsoNow, nsoOld)
-         if allowCheckIndex and self._settings['ns_checkIndexOnUpdateNS']: self._checkIndexForNS(calcMaxIndex=ns)
+         if allowCheckIndex and self._settings['ns_checkIndexOnUpdateNS']:
+            self._checkIndexForNS(calcGlobalMaxIndex=ns, calcLocalMaxIndex=ns)
 
    def delNS(self, ns, strictMode=True, allowCheckIndex=True):
       if not isString(ns) or not self.namespace_pattern_check.match(ns):
@@ -236,98 +175,353 @@ class DBNamespaced(DBBase):
             raise StrictModeError('Namespace "%s" not exist'%ns)
          return
       nso=nsMap.pop(ns)
+      self.__calcLAInc(onlyFor=ns)
       self._namespaceChanged(ns, None, nso)
-      if allowCheckIndex and self._settings['ns_checkIndexOnUpdateNS']: self._checkIndexForNS(calcMaxIndex=False)
+      if allowCheckIndex and self._settings['ns_checkIndexOnUpdateNS']: self._checkIndexForNS(calcGlobalMaxIndex=False)
 
-   def _validateOnSetNS(self, ids, data, lastId, nsPrev, nsoPrev, nsMap, **kwargs):
-      stopwatch=self.stopwatch('_validateOnSetNS@DBNamespaced')
-      if lastId is None:
-         if nsoPrev and nsoPrev['child'] and None not in nsoPrev['child']:
-            stopwatch()
-            raise NamespaceOrderError('NS(%s) cant be child of NS(%s)'%(None, nsPrev))
-         return None, None, None
+   def __calcLAInc(self, onlyFor=False):
+      if not self.settings_frozen: return
+      __LAInc_def=self._settings['ns_default_allowLocalAutoIncrement']
+      if __LAInc_def is not False and __LAInc_def is not True and (not __LAInc_def or not isinstance(__LAInc_def, set)):
+         self.settings._MagicDictCold__unfreeze()
+         __LAInc_def=self.settings['ns_default_allowLocalAutoIncrement']=__LAInc_def or False
+         if __LAInc_def is not True and not isinstance(__LAInc_def, set):
+            __LAInc_def=self.settings['ns_default_allowLocalAutoIncrement']=set(__LAInc_def)
+         self.settings._MagicDictCold__freeze()
+      nsMap=self.__ns
+      if onlyFor is False:
+         onlyFor=nsMap
+      elif isinstance(onlyFor, (str, unicode)):
+         onlyFor=(onlyFor,)
       else:
-         nsNow, nsi=self._parseId2NS(lastId)
-         nsoNow=None
-         if nsNow and nsNow in nsMap:
-            nsoNow=nsMap[nsNow]
-            #! такой способ конвертации довольно дорогой. лучше в парсере пытаться отдельно извлечь цифровую группу и отдельно строковый идентификатор, и таким образом выполнять конвертацию прямо в парсере
-            try: nsi=int(nsi)
-            except (ValueError, TypeError):
-               if nsoNow['onlyIndexed']:
-                  stopwatch()
-                  raise NamespaceIndexError('index required for NS(%s)'%(nsNow,))
-            #! поскольку у нас нет отдельного метода для добавления и отдельного для редактирования, проверка на индексы бесполезна
-            # if isinstance(nsi, int) and nsi>(nsoNow['maxIndex'] or 0):
-            #    stopwatch()
-            #    raise NamespaceIndexError('too large value %s for NS(%s)'%(nsi, nsNow))
-            if nsoNow['parent'] and (
-               (nsoPrev and nsPrev not in nsoNow['parent']) or
-               (not nsoPrev and None not in nsoNow['parent'])):
-               stopwatch()
-               raise NamespaceOrderError('NS(%s) cant be parent of NS(%s)'%(nsPrev, nsNow))
+         onlyFor=[ns for ns in onlyFor]
+      __LAInc_enabled=self.__LAInc_enabled
+      if __LAInc_def is not False: __LAInc_enabled[0]=True
+      for ns in onlyFor:
+         if ns not in nsMap:
+            if __LAInc_enabled[0] and ns in __LAInc_enabled[1]:
+               self.__LAInc_enabled[1].remove(ns)
+               if not self.__LAInc_enabled[1] and __LAInc_def is False:
+                  self.__LAInc_enabled[1]=False
+            continue
+         nso=nsMap[ns]
+         _LAInc=nso['localAutoIncrement']
+         if _LAInc is None:
+            _LAInc=nso['localAutoIncrement']=__LAInc_def
+         if isinstance(_LAInc, set) or _LAInc is True:
+            __LAInc_enabled[1].add(ns)
+            __LAInc_enabled[0]=True
+         elif __LAInc_enabled[0] is True and ns in __LAInc_enabled[1]:
+            __LAInc_enabled[1].remove(ns)
+            if not __LAInc_enabled[1] and __LAInc_def is False:
+               __LAInc_enabled[0]=False
+
+   def _checkIdsNS(self, ids, nsIndexMap=None, **kwargs):
+      stopwatch=self.stopwatch('_checkIdsNS@DBNamespaced')
+      nsMap=self.__ns
+      if not nsMap: return None
+      tArr=[]
+      nsPrev, nsoPrev=None, None
+      for idNow in ids:
+         nsNow, nsiNow=self._parseId2NS(idNow)
+         numerable_nsiNow=False
          if (nsoPrev and nsoPrev['child'] and (
             (nsoNow and nsNow not in nsoPrev['child']) or
             (not nsoNow and None not in nsoPrev['child']))):
             stopwatch()
             raise NamespaceOrderError('NS(%s) cant be child of NS(%s)'%(nsNow, nsPrev))
+         nsoNow=None
+         if nsNow and nsNow in nsMap:
+            nsoNow=nsMap[nsNow]
+            if nsiNow is None and nsoNow['onlyIndexed']:
+               raise NamespaceIndexError('index required for NS(%s)'%(nsNow,))
+            if nsiNow is not None:
+               try:
+                  nsiNow=int(nsiNow)
+                  numerable_nsiNow=True
+               except (ValueError, TypeError):
+                  if nsoNow['onlyNumerable']:
+                     stopwatch()
+                     raise NamespaceIndexError('numerable index required for NS(%s)'%(nsNow,))
+            if nsIndexMap is not None:
+               if nsNow in nsIndexMap:
+                  nsIndexMap[nsNow].append(nsiNow)
+               else:
+                  nsIndexMap[nsNow]=[nsiNow]
+            if nsoNow['parent'] and (
+               (nsoPrev and nsPrev not in nsoNow['parent']) or
+               (not nsoPrev and None not in nsoNow['parent'])):
+               stopwatch()
+               raise NamespaceOrderError('NS(%s) cant be parent of NS(%s)'%(nsPrev, nsNow))
+         nsPrev, nsoPrev=nsNow, nsoNow
+         tArr.append((idNow, nsNow, nsiNow, nsoNow, numerable_nsiNow))
+      stopwatch()
+      return tArr
+
+   def _checkIndexForNS(self, calcGlobalMaxIndex=True, calcLocalMaxIndex=False):
+      #! разным расширениям зачастую нужен механизм обхода всех обьектов при инициализации. нет смысла делать это раздельно, нужен единый механизм
+      #? однако этаже функция используется при реконфигурации неймспейсов для выполнения валидации.
+      nsMap=self.__ns
+      if not nsMap: return
+      __LAInc_enabled=self.__LAInc_enabled
+      __LAInc_def=self.settings['ns_default_allowLocalAutoIncrement']
+      #
+      if calcGlobalMaxIndex is True: calcGlobalMaxIndex=nsMap.keys()
+      elif calcGlobalMaxIndex:
+         if isinstance(calcGlobalMaxIndex, (list, tuple, set)):
+            calcGlobalMaxIndex=list(ns for ns in calcGlobalMaxIndex if ns in nsMap)
+         else:
+            calcGlobalMaxIndex=([calcGlobalMaxIndex] if calcGlobalMaxIndex in nsMap else ())
+         if not len(calcGlobalMaxIndex): calcGlobalMaxIndex=False
+      else:
+         calcGlobalMaxIndex=False
+      #
+      if not __LAInc_enabled[0]:
+         calcLocalMaxIndex=False
+      elif calcLocalMaxIndex and calcLocalMaxIndex is not True:
+         if isinstance(calcLocalMaxIndex, (list, tuple, set)):
+            calcLocalMaxIndex=set(ns for ns in calcLocalMaxIndex if ns in nsMap)
+         else:
+            calcLocalMaxIndex=set([calcLocalMaxIndex] if calcLocalMaxIndex in nsMap else ())
+         if not calcLocalMaxIndex:
+            calcLocalMaxIndex=False
+      #
+      nsIndexMap={} if calcGlobalMaxIndex is not False else None
+      for (idsParent, (propsParent, lParent)), (ids, (props, l)) in self.iterBranch(recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True, returnParent=True):
+         idsChain=self._checkIdsNS(ids, nsIndexMap=nsIndexMap, props=props, childCount=l)
+         _, ns, nsi, nso, numerable_nsiNow=idsChain[-1]
+         # localAutoIncrement
+         if numerable_nsiNow and (calcLocalMaxIndex is True or (calcLocalMaxIndex is not False and ns in calcLocalMaxIndex)) and idsParent and (ns in __LAInc_enabled[1] or nso is None):
+            tArr=nso['localAutoIncrement'] if nso is not None else __LAInc_def
+            if tArr is True or (tArr is not False and self._parseId2NS(idsParent[-1])[0] in tArr):
+               tArr=None
+               if 'localAutoIncrement' in propsParent:
+                  tArr=propsParent['localAutoIncrement']
+                  if ns in tArr and tArr[ns]>nsi: tArr=None
+                  else:
+                     tArr=tArr.copy()
+                     tArr[ns]=nsi
+               elif propsParent:
+                  tArr=propsParent['localAutoIncrement'].copy()
+                  tArr[ns]=nsi
+               else:
+                  tArr={ns:nsi}
+               if tArr is not None:
+                  self. _markInIndex(idsParent, strictMode=True, createNotExisted=False, localAutoIncrement=tArr)
+                  propsParent['localAutoIncrement']=tArr  #? генератор `iterBranch` не отслеживает изменение родителя в процессе работы и отдает всегда начальные данные
+      # globalAutoIncrement
+      if calcGlobalMaxIndex is not False and nsIndexMap:
+         for ns in calcGlobalMaxIndex:
+            if ns not in nsIndexMap: continue
+            nso=nsMap[ns]
+            if not nso['maxIndex']: nso['maxIndex']=0
+            nso['maxIndex']=max(nso['maxIndex'], *nsIndexMap[ns])
+
+   def _parseId2NS(self, id, needNSO=False):
+      stopwatch=self.stopwatch('_parseId2NS@DBNamespaced')
+      res=self.namespace_pattern_parse.search(id)
+      if res is None:
+         if self._settings['ns_parseId_allowOnlyName'] and self.namespace_pattern_check.match(id) is not None:
+            res=(id, None)
+         else:
+            res=(None, None)
+      else:
+         res=(res.group(1), res.group(2))
+      if needNSO:
+         ns, nsMap=res[0], self.__ns
+         res+=(nsMap[ns] if (ns is not None and ns in nsMap) else None,)
+      stopwatch()
+      return res
+
+   def _generateIdNS_globalAutoIncrement(self, ns, nso, localAutoIncrement=False):
+      stopwatch=self.stopwatch('_generateIdNS_globalAutoIncrement@DBNamespaced')
+      if nso is None:
+         raise NamespaceUnknownError('Cant generate index for unknown NS(%s)'%(ns,))
+      ii=(nso['maxIndex'] or 0)+1
+      if self._settings['ns_globalAutoIncrement_reservation']: nso['maxIndex']=ii
+      stopwatch()
+      return ii
+
+   def _generateIdNS_localAutoIncrement(self, ns, nso, nsPrev, idsParent, propsParrent):
+      if not self.__LAInc_enabled[0] or (ns not in self.__LAInc_enabled[1] and ns is not None):
+         raise NamespaceGenerateIdError('LocalAutoIncrement disabled for parent NS(%s) by NS(%s)'%(nsPrev, ns))
+      stopwatch=self.stopwatch('_generateIdNS_localAutoIncrement@DBNamespaced')
+      if nso is not None:
+         tArr=nso['localAutoIncrement']
+      else:
+         tArr=self._settings['ns_default_allowLocalAutoIncrement']
+      if tArr is not True and nsPrev not in tArr:
+         raise NamespaceGenerateIdError('LocalAutoIncrement disabled for parent NS(%s) by NS(%s)'%(nsPrev, ns))
+      if 'localAutoIncrement' not in propsParrent:
+         if self._settings['ns_localAutoIncrement_reservation']: tArr={ns:1}
+         ii=1
+      else:
+         tArr=propsParrent['localAutoIncrement']
+         if not self._settings['ns_localAutoIncrement_reservation']:
+            ii=1 if ns not in tArr else tArr[ns]+1
+         else:
+            tArr=tArr.copy()
+            if ns in tArr:
+               tArr[ns]+=1
+               ii=tArr[ns]
+            else:
+               ii=tArr[ns]=1
+      if self._settings['ns_localAutoIncrement_reservation']:
+         self._markInIndex(idsParent, strictMode=True, createNotExisted=False, localAutoIncrement=tArr)
+      if nso is not None and self._settings['ns_globalAutoIncrement_reservation']:
+         nso['maxIndex']=max(nso['maxIndex'], ii)
+      stopwatch()
+      return ii
+
+   def ids2ns_generator(self, ids):
+      assert isinstance(ids, (tuple, list))
+      for id in ids:
+         ns, nsi, nso=self._parseId2NS(id, needNSO=True)
+         yield (id, ns, nsi, nso)
+
+   def ids2ns(self, ids):
+      return tuple(self.ids2ns_generator(ids))
+
+   def _namespaceChanged(self, ns, nsoNow, nsoOld):
+      pass
+
+   def _validateOnSetNS(self, ids, data, nsNow, nsiNow, nsoNow, nsPrev, nsiPrev, nsoPrev, isExist=None, lastId=None, **kwargs):
+      if isExist:
+         if nsoNow is not None and nsiNow is not None:
+            try:
+               nsiNow=int(nsiNow)
+               return nsiNow, True
+            except (ValueError, TypeError):
+               return nsiNow, False
+      stopwatch=self.stopwatch('_validateOnSetNS@DBNamespaced')
+      numerable_nsiNow=False
+      if nsoNow is not None:
+         if nsiNow is None and nsoNow['onlyIndexed']:
+            raise NamespaceIndexError('index required for NS(%s)'%(nsNow,))
+         if nsiNow is not None:
+            try:
+               nsiNow=int(nsiNow)
+               numerable_nsiNow=True
+            except (ValueError, TypeError):
+               if nsoNow['onlyNumerable']:
+                  stopwatch()
+                  raise NamespaceIndexError('numerable index required for NS(%s)'%(nsNow,))
+         #! поскольку у нас нет отдельного метода для добавления и отдельного для редактирования, проверка на индексы бесполезна в таком виде
+         # if isinstance(nsiNow, int) and nsiNow>(nsoNow['maxIndex'] or 0):
+         #    stopwatch()
+         #    raise NamespaceIndexError('too large value %s for NS(%s)'%(nsiNow, nsNow))
+         if nsoNow['parent'] and (
+            (nsoPrev is not None and nsPrev not in nsoNow['parent']) or
+            (nsoPrev is None and None not in nsoNow['parent'])):
+            stopwatch()
+            raise NamespaceOrderError('NS(%s) cant be parent of NS(%s)'%(nsPrev, nsNow))
+      if (nsoPrev is not None and nsoPrev['child'] and (
+         (nsoNow is not None and nsNow not in nsoPrev['child']) or
+         (nsoNow is None and None not in nsoPrev['child']))):
          stopwatch()
-         return nsNow, nsi, nsoNow
+         raise NamespaceOrderError('NS(%s) cant be child of NS(%s)'%(nsNow, nsPrev))
+      stopwatch()
+      return nsiNow, numerable_nsiNow
 
    def set(self, ids, data, allowMerge=True, existChecked=None, onlyIfExist=None, strictMode=False, **kwargs):
       stopwatch=self.stopwatch('set@DBNamespaced')
       ids=ids if isinstance(ids, list) else(list(ids) if isinstance(ids, tuple) else [ids])
       lastId=ids[-1]
+      if lastId is None:
+         raise NotSupportedError('Generating random ID disabled by *DBNamespaced* extension, use local or global auto-increment instead')
+      _idsLen=len(ids)
       nsMap=self.__ns
       isExist, props=False, {}
-      if lastId is None: pass  # default newId-generator will be invoked
-      elif lastId[0]=='?':
-         # namespace-based newId-generator
-         ns=lastId[1:]
-         lastId=ids[-1]=self._generateIdNS(ns)
+      nsPrev, nsiPrev=NULL, None
+      nsNow, nsiNow, nsoNow=NULL, None, None
+      idsParent=tuple(ids[:-1])
+      wasAutoGen=False
+      numerable_nsiNow=False
+      if lastId[-1]=='?':
+         # namespace-based globalAutoIncrement newId-generator
+         stopwatch1=self.stopwatch('set.globalAutoIncrement@DBNamespaced')
+         wasAutoGen=1
+         numerable_nsiNow=True
+         nsNow=lastId[:-1]
+         nsoNow=nsMap.get(nsNow, None)
+         nsiNow=self._generateIdNS_globalAutoIncrement(nsNow, nsoNow)
+         lastId=ids[-1]='%s%i'%(nsNow, nsiNow)
+         stopwatch1()
+      elif lastId[-1]=='+':
+         # namespace-based localAutoIncrement newId-generator
+         if _idsLen==1:
+            raise NamespaceGenerateIdError('No parent for NS(%s)'%(ns,))
+         stopwatch1=self.stopwatch('set.localAutoIncrement@DBNamespaced')
+         wasAutoGen=2
+         numerable_nsiNow=True
+         nsPrev, nsiPrev=self._parseId2NS(ids[-2]) if _idsLen>1 else (None, None)
+         _, propsParrent, _=self._findInIndex(idsParent, strictMode=True, calcProperties=False)
+         nsNow=lastId[:-1]
+         nsoNow=nsMap.get(nsNow, None)
+         nsiNow=self._generateIdNS_localAutoIncrement(nsNow, nsoNow, nsPrev, idsParent, propsParrent)
+         lastId=ids[-1]='%s%i'%(nsNow, nsiNow)
+         stopwatch1()
       else:
          if existChecked is None:
-            isExist, props, _=self._findInIndex(ids, strictMode=True)
+            isExist, props, _=self._findInIndex(ids, strictMode=True, calcProperties=True, skipLinkChecking=True)
          else:
             isExist, props=existChecked if isinstance(existChecked, tuple) else (True, existChecked)
-         if onlyIfExist is not None and isExist!=onlyIfExist:
-            if strictMode:
-               raise ExistStatusMismatchError('expected "isExist=%s" for %s'%(onlyIfExist, ids))
-            return None
-      nsPrev=self._parseId2NS(ids[-2])[0] if len(ids)>1 else None
+      if onlyIfExist is not None and isExist!=onlyIfExist:
+         if strictMode:
+            raise ExistStatusMismatchError('expected "isExist=%s" for %s'%(onlyIfExist, ids))
+         return None
+      if nsPrev is NULL:
+         nsPrev, nsiPrev=self._parseId2NS(ids[-2]) if _idsLen>1 else (None, None)
       nsoPrev=nsMap[nsPrev] if (nsPrev and nsPrev in nsMap) else None
+      #
+      if nsNow is NULL:
+         nsNow, nsiNow=self._parseId2NS(lastId)
+         nsoNow=nsMap.get(nsNow, None)
       # namespace-rules checking
-      nsNow, nsi, nsoNow=self._validateOnSetNS(ids, data, lastId, nsPrev, nsoPrev, nsMap, isExist=isExist, props=props, allowMerge=allowMerge, **kwargs)
-      if 'backlink' in props and props['backlink']:
-         # also checking namespace-rules for backlinks
-         _queue=deque(props['backlink'])
-         _queuePop=_queue.pop
-         _queueExtend=_queue.extend
-         _findInIndex=self._findInIndex
-         _parseId2NS=self._parseId2NS
-         _validateOnSetNS=self._validateOnSetNS
-         while _queue:
-            ids2=_queuePop()
-            badLinkChain=[]
-            try:
-               isExist2, props2, _=_findInIndex(ids2, strictMode=True, calcProperties=False, skipLinkChecking=True, needChain=badLinkChain)
-            except BadLinkError:
-               # удаляем плохой линк
-               #? почему здесь полное удаление, а не через прощенный вариант как в `self.set()`
-               for _ids, _props in reversed(badLinkChain):
-                  self.set(_ids, None, existChecked=_props, allowForceRemoveChilds=True)
-               continue
-            nsPrev2=_parseId2NS(ids2[-2])[0] if len(ids2)>1 else None
-            nsoPrev2=nsMap[nsPrev2] if (nsPrev2 and nsPrev2 in nsMap) else None
-            _validateOnSetNS(ids2, data, ids2[-1], nsPrev2, nsoPrev2, nsMap, isExist=isExist2, props=props2, allowMerge=allowMerge, **kwargs)
-            if 'backlink' in props2 and props2['backlink']:
-               _queueExtend(props2['backlink'])
+      if not isExist or (data is None and self._settings['ns_validateOnDataRemove']) or (data is not None and self._settings['ns_validateOnDataUpdate']):
+         nsiNow, numerable_nsiNow=self._validateOnSetNS(ids, data, nsNow, nsiNow, nsoNow, nsPrev, nsiPrev, nsoPrev, lastId=lastId, isExist=isExist, props=props, allowMerge=allowMerge, **kwargs)
+         if 'backlink' in props and props['backlink']:
+            stopwatch1=self.stopwatch('set.checkBacklinked@DBNamespaced')
+            # also checking namespace-rules for backlinks
+            _queue=deque(props['backlink'])
+            _queuePop=_queue.pop
+            _queueExtend=_queue.extend
+            _findInIndex=self._findInIndex
+            _parseId2NS=self._parseId2NS
+            _validateOnSetNS=self._validateOnSetNS
+            while _queue:
+               ids2=_queuePop()
+               isExist2, props2, _=_findInIndex(ids2, strictMode=True, calcProperties=True, skipLinkChecking=True)
+               lastId2=ids2[-1]
+               nsNow2, nsiNow2=self._parseId2NS(lastId2)
+               nsoNow2=nsMap.get(nsNow2, None)
+               nsPrev2, nsiPrev2=_parseId2NS(ids2[-2]) if len(ids2)>1 else (None, None)
+               nsoPrev2=nsMap[nsPrev2] if (nsPrev2 and nsPrev2 in nsMap) else None
+               _validateOnSetNS(ids2, data, nsNow2, nsiNow2, nsoNow2, nsPrev2, nsiPrev2, nsoPrev2, nsMap=nsMap, lastId=lastId2, isExist=isExist2, props=props2, allowMerge=allowMerge, **kwargs)
+               if 'backlink' in props2 and props2['backlink']:
+                  _queueExtend(props2['backlink'])
+            stopwatch1()
       # all checkings passed
       ids=tuple(ids)
-      needReplaceMaxIndex=(nsoNow and nsi and data is not None and data is not False and isinstance(nsi, int))
+      needReplaceMaxIndex=numerable_nsiNow and not isExist and nsoNow and nsiNow and data is not None and data is not False and isinstance(nsiNow, int)
       stopwatch()
       r=super(DBNamespaced, self).set(ids, data, allowMerge=allowMerge, existChecked=(isExist, props), onlyIfExist=onlyIfExist, strictMode=strictMode, **kwargs)
       # инкрементим `maxIndex` после добавления, чтобы в случае ошибки не увеличивать счетчик
       if r is not False and needReplaceMaxIndex:
-         nsoNow['maxIndex']=max(nsoNow['maxIndex'], nsi)
+         # globalAutoIncrement
+         if nsoNow is not None and (wasAutoGen is False or not self._settings['ns_globalAutoIncrement_reservation']):
+            nsoNow['maxIndex']=max(nsoNow['maxIndex'], nsiNow)
+         # localAutoIncrement
+         if _idsLen>1 and (wasAutoGen!=2 or not self._settings['ns_localAutoIncrement_reservation']) and self.__LAInc_enabled[0] and (nsNow in self.__LAInc_enabled[1] or nsoNow is None):
+            stopwatch1=self.stopwatch('set_updateAutoIncrement.local@DBNamespaced')
+            tArr=nsoNow['localAutoIncrement'] if nsoNow is not None else self._settings['ns_default_allowLocalAutoIncrement']
+            if tArr is True or nsPrev in tArr:
+               _, propsParrent, _=self._findInIndex(ids[:-1], strictMode=True, calcProperties=False)
+               if 'localAutoIncrement' not in propsParrent:
+                  tArr={nsNow:nsiNow}
+               else:
+                  tArr=propsParrent['localAutoIncrement'].copy()
+                  tArr[nsNow]=max(tArr[nsNow], nsiNow) if nsNow in tArr else nsiNow
+               self._markInIndex(idsParent, strictMode=True, createNotExisted=False, localAutoIncrement=tArr)
+            stopwatch1()
       return r

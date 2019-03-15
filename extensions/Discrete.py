@@ -77,6 +77,7 @@ class DBDiscrete(DBBase):
          self.supports.prop_branchModified=True
       self.__allDiscreteColumnsByNS={}  # используется, чтобы конвертировать `prop@branchModified` из `True` в настоящий список колонок
       self.__tmpCache={}  #! это должно реализовываться средствами `Store*` расширения
+      self.settings.ns_validateOnUpdate=True
       self.supports.discrete=True
       self.settings.discrete_cacheble=False  # for supporting caching of calculated values, we need to disable some perf-tricks
       return res
@@ -164,7 +165,7 @@ class DBDiscrete(DBBase):
       for key, (cb, traverse, depends) in _discreteSetts.iteritems():
          if _tmpCache and key in _tmpCache:
             #! пока не определено поведение при `depends=False`
-            if branchModified is False or not len(branchModified.intersection(depends)):
+            if branchModified is False or not branchModified.intersection(depends):
                res[key]=calced2cache[key]=_tmpCache[key]
                continue
          elif traverse is True:
@@ -214,6 +215,6 @@ class DBDiscrete(DBBase):
       #
       return res
 
-   # def _validateOnSet(self, ids, data, propsUpdate=None, **kwargs):
+   # def _validateOnSet(self, ids, data, nsNow, nsiNow, nsoNow, nsPrev, nsiPrev, nsoPrev, propsUpdate=None, **kwargs):
    #    propsUpdate['branchModified']=True
-   #    return super(DBDiscrete, self)._validateOnSet(ids, data, propsUpdate=propsUpdate, **kwargs)
+   #    super(DBDiscrete, self)._validateOnSet(ids, data, nsNow, nsiNow, nsoNow, nsPrev, nsiPrev, nsoPrev, propsUpdate=propsUpdate, **kwargs)

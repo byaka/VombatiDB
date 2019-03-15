@@ -48,10 +48,12 @@ try:
    from functionsex import *
 except ImportError:
    from functionsEx.functionsex import *
-from gevent.lock import RLock
 
 import errors
 from .errors import *
+
+IN_TERM=consoleIsTerminal()
+COLORS=MagicDict({k:(v if IN_TERM else '') for k,v in consoleColor.iteritems()})
 
 """ Special classes for wrapping config of bad-patterns. """
 
@@ -69,6 +71,100 @@ class BadPatternRE(BadPatternSpecial):
       self.flags=flags
 class BadPatternREMatch(BadPatternRE): pass
 class BadPatternRESearch(BadPatternRE): pass
+
+class Workspace(object):
+   __logLevelTemplate={
+      0:'%(bold)s%(red)sERR ',
+      1:'%(red)sERR ',
+      2:'%(yellow)sWARN',
+      3:'    ',
+      4:'%(light)s    ',
+   }
+
+   def __init__(self, thread=None, sleep=None, input=None, rlock=None, fileWrap=None, log=None, **kwargs):
+      if not thread or not rlock:
+         import threading
+         self.__threading=threading
+      #
+      self.thread=thread or self.__thread
+      self.sleep=sleep or time.sleep
+      self.raw_input=input or raw_input
+      self.rlock=rlock or self.__threading.RLock
+      self.fileWrap=fileWrap or (lambda f: f)
+      self.log=log or self.__log
+      #
+      for k, v in kwargs.iteritems():
+         setattr(self, k, v)
+
+   def __thread(self, target, args=None, kwargs=None):
+      t=self.__threading.Thread(target=target, args=args or (), kwargs=kwargs or {})
+      t.daemon=True
+      t.start()
+      return t
+
+   def __log(self, levelId, *args):
+      try:
+         t=timetime()
+         if levelId not in self.__logLevelTemplate:
+            args=(levelId,)+args
+            lvl=self.__logLevelTemplate[3]
+         else:
+            lvl=self.__logLevelTemplate[levelId]
+         data=[]
+         for x in args:
+            if not isString(x):
+               try: x=str(x)
+               except Exception:
+                  try: x=self._server._serializeJSON(x)
+                  except Exception:
+                     try: x=repr(x)
+                     except Exception: x='{UNPRINTABLE}'
+            data.append(x)
+         data=' '.join(data)
+         caller=selfInfo(-3)
+         if '/' in caller.module:
+            caller.module=getScriptName(True, f=caller.module)
+         caller.name='<%(module)s>.%(name)s()'%caller if caller.name!='<module>' else '<%s>'%caller.module
+         caller='%(name)s:%(line)s'%caller
+         #
+         p=COLORS.copy()
+         p['level']=lvl%p
+         p['caller']=caller
+         p['timestamp']=datetime.datetime.fromtimestamp(t).strftime('%m-%d_%H:%M:%S')
+         p['data']=data
+         s='%(light)s%(timestamp)s%(end)s %(level)s[%(caller)s] %(data)s%(end)s'%p
+         try:
+            print s
+         except UnicodeEncodeError:
+            print decode_utf8(s)
+      except Exception:
+         print '!!! Error in Logger(%s: %r): %s'%(levelId, args, getErrorInfo())
+
+class WorkspaceOld(Workspace):
+   def __init__(self, workspace, **kwargs):
+      if workspace:
+         if hasattr(workspace, 'server') and hasattr(workspace, 'log'):
+            tArr={
+               'thread':getattr(workspace.server, '_thread'),
+               'sleep':getattr(workspace.server, '_sleep'),
+               'input':getattr(workspace.server, '_raw_input'),
+               'fileWrap':getattr(workspace.server, '_fileObj'),
+               'log':getattr(workspace, 'log'),
+            }
+            if workspace.server.settings.gevent:
+               from gevent.lock import RLock
+            else:
+               from threading import RLock
+            tArr['rlock']=RLock
+            _iter=workspace if isinstance(workspace, dict) else dir(workspace)
+            for k in _iter:
+               if k=='log': continue
+               tArr[k]=oGet(workspace, k)
+            #
+            kwargs=dict(tArr, **kwargs)
+         else:
+            raise NotImplementedError("This workspace's format not supported")
+      super(WorkspaceOld, self).__init__(**kwargs)
 
 def showStats(db):
    if getattr(db, '_destroyed', False): return
@@ -191,3 +287,29 @@ def showDB(db, branch=None, limit=None):
       print msg
       i+=1
    print sep
+
+def dumpDB(db, branch=None):
+   #! нужно добавить сравнение `meta` и `props`
+   tArr={'data':{}}
+   for ids, (props, branchLen) in db.iterBranch(branch, treeMode=True, safeMode=False, calcProperties=False, skipLinkChecking=False):
+      data=db.get(ids, existChecked=props, returnRaw=True)
+      tArr['data'][ids]=(branchLen, data)
+   return tArr
+
+def diffDB(db, dumped, branch=None):
+   #! нужно добавить сравнение `meta` и `props`
+   idsExisted=set()
+   for ids, (props, branchLen) in db.iterBranch(branch, treeMode=True, safeMode=False, calcProperties=True, skipLinkChecking=False):
+      if ids not in dumped['data']:
+         yield ('BRANCH_UNEXPECTED', ids, None)
+      elif dumped['data'][ids][0]!=branchLen:
+         yield ('BRANCH_SIZE', ids, (dumped['data'][ids][0], branchLen))
+      else:
+         data=db.get(ids, existChecked=props, returnRaw=True)
+         if dumped['data'][ids][1]!=data:
+            yield ('BRANCH_DATA', ids, (dumped['data'][ids][1], data))
+         else:
+            idsExisted.add(ids)
+   #
+   for ids in set(dumped)-idsExisted:
+      yield ('BRANCH_MISSED', ids, None)

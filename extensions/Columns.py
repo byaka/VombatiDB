@@ -39,6 +39,7 @@ class DBWithColumns(DBBase):
    def _init(self, *args, **kwargs):
       res=super(DBWithColumns, self)._init(*args, **kwargs)
       self.supports.columns=True
+      self.settings.ns_validateOnDataUpdate=True
       self.settings.ns_config_keyMap.insert(2, ('columns', False))
       self.settings.columns_default_allowUnknown=True
       self.settings.columns_default_allowMissed=True
@@ -151,7 +152,7 @@ class DBWithColumns(DBBase):
       idsMap=super(DBWithColumns, self)._checkIdsNS(ids, props=props, **kwargs)
       if idsMap and self._settings['columns_checkOnNSHook_allowed']:
          stopwatch=self.stopwatch('_checkIdsNS@DBWithColumns')
-         idNow, nsNow, nsi, nsoNow=idsMap[-1]
+         _, nsNow, _, nsoNow, _=idsMap[-1]
          if nsoNow and 'columns' in nsoNow:
             data=self.get(ids, existChecked=props, returnRaw=True, strictMode=False)
             if isinstance(data, dict):
@@ -204,15 +205,16 @@ class DBWithColumns(DBBase):
          stopwatch1()
       stopwatch()
 
-   def _validateOnSetNS(self, ids, data, lastId, nsPrev, nsoPrev, nsMap, propsUpdate=None, isExist=None, props=None, **kwargs):
-      nsNow, nsi, nsoNow=super(DBWithColumns, self)._validateOnSetNS(ids, data, lastId, nsPrev, nsoPrev, nsMap, propsUpdate=propsUpdate, **kwargs)
+   #! когда LocalAutoIncrement генерил уже существующие адишники, почемуто не выполнялась проверка колонок, хотя должна была. когда он начал выдавать корректные айдишники, все заработало
+   def _validateOnSetNS(self, ids, data, nsNow, nsiNow, nsoNow, nsPrev, nsiPrev, nsoPrev, propsUpdate=None, isExist=None, props=None, **kwargs):
+      r=super(DBWithColumns, self)._validateOnSetNS(ids, data, nsNow, nsiNow, nsoNow, nsPrev, nsiPrev, nsoPrev, propsUpdate=propsUpdate, isExist=isExist, props=props, **kwargs)
       stopwatch=self.stopwatch('_validateOnSetNS@DBWithColumns')
       if data is True and propsUpdate and 'link' in propsUpdate and propsUpdate['link']:
          # on link changes, we need to validate columns
          if not isExist or 'link' not in props or props['link']!=propsUpdate['link']:
             data=self.get(propsUpdate['link'], returnRaw=True, strictMode=True)
-      if nsoNow and isinstance(data, dict) and 'columns' in nsoNow:
+      if nsoNow is not None and isinstance(data, dict) and 'columns' in nsoNow:
          allowMerge=kwargs['allowMerge']  # мы не используем именованный аргумент чтобы дать возможность другим расширениям переопределеить дефолтное значение этого параметра
          self._checkDataColumns(nsNow, nsoNow, ids, data, allowMerge=allowMerge)
       stopwatch()
-      return nsNow, nsi, nsoNow
+      return r

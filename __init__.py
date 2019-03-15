@@ -22,7 +22,9 @@ This library is an __.
 """
 
 from .utils import *
+from .DBTestBase import *
 from .DBBase import DBBase
+from .DBBase import __version__ as VERSION
 from .extensions import extensions
 from . import errors
 
@@ -78,5 +80,5 @@ def VombatiDB(exts):
       for o in exts:
          for k,v in DBExtsMap[o]['errors'].iteritems():
             setattr(errors, k, v)
-   print 'Creating DB-instance '+('(original)' if not exts else 'with exts %s'%', '.join(o.__name__ for o in exts))
+   print 'Creating DB-instance '+'[%s] '%VERSION+('(original)' if not exts else 'with exts: %s'%', '.join(o.__name__ for o in exts))+'.'
    return ClassFactory(DBBase, exts, fixPrivateAttrs=True)
