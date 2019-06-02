@@ -796,7 +796,7 @@ class DBBase(object):
       if onlyIfExist is not None and isExist!=onlyIfExist:
          if strictMode:
             raise ExistStatusMismatchError('expected "isExist=%s" for %s'%(onlyIfExist, ids))
-         return None
+         return ids
       if data is not True and 'link' in props and props['link']: propsUpdate['link']=None
       # если создается ссылка, проверяем существование обьекта
       if 'link' in propsUpdate:

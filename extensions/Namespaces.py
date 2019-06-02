@@ -425,7 +425,7 @@ class DBNamespaced(DBBase):
 
    def set(self, ids, data, allowMerge=True, existChecked=None, onlyIfExist=None, strictMode=False, **kwargs):
       stopwatch=self.stopwatch('set@DBNamespaced')
-      ids=ids if isinstance(ids, list) else(list(ids) if isinstance(ids, tuple) else [ids])
+      ids=ids if isinstance(ids, list) else(list(ids) if isinstance(ids, tuple) else [ids])  # needed for modify on autoincrement
       lastId=ids[-1]
       if lastId is None:
          raise NotSupportedError('Generating random ID disabled by *DBNamespaced* extension, use local or global auto-increment instead')
@@ -466,10 +466,11 @@ class DBNamespaced(DBBase):
             isExist, props, _=self._findInIndex(ids, strictMode=True, calcProperties=True, skipLinkChecking=True)
          else:
             isExist, props=existChecked if isinstance(existChecked, tuple) else (True, existChecked)
+      ids=tuple(ids)
       if onlyIfExist is not None and isExist!=onlyIfExist:
          if strictMode:
             raise ExistStatusMismatchError('expected "isExist=%s" for %s'%(onlyIfExist, ids))
-         return None
+         return ids
       if nsPrev is NULL:
          nsPrev, nsiPrev=self._parseId2NS(ids[-2]) if _idsLen>1 else (None, None)
       nsoPrev=nsMap[nsPrev] if (nsPrev and nsPrev in nsMap) else None
@@ -502,7 +503,6 @@ class DBNamespaced(DBBase):
                   _queueExtend(props2['backlink'])
             stopwatch1()
       # all checkings passed
-      ids=tuple(ids)
       needReplaceMaxIndex=numerable_nsiNow and not isExist and nsoNow and nsiNow and data is not None and data is not False and isinstance(nsiNow, int)
       stopwatch()
       r=super(DBNamespaced, self).set(ids, data, allowMerge=allowMerge, existChecked=(isExist, props), onlyIfExist=onlyIfExist, strictMode=strictMode, **kwargs)
