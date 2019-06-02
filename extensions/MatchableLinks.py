@@ -129,6 +129,7 @@ class DBMatchableLinks(DBBase):
          stopwatch()
       return _status
 
+   #? поскольку prop@backlink хранится также в виде сэта, данная функция может работать и с ним што может быть весьма полезным. однако нужна возможность обратиться к данной пропе по идсам (сейчас при передаче идсов автоматически берутся linkedChilds). возможно не стоит так сильно позиционировать данное расширение именно для работы с линкедчайлд, и сделать его более универсальным - хотябы для работы с бэклинками.
    def matchLinks(self, idsList, like='and', skipEmpty=False, skipNotExists=True, strictMode=True, skipLinkChecking=False):
       if not callable(like):
          if like not in self.__matchMethodConvMap:
