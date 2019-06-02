@@ -53,7 +53,8 @@ class DBSearch_simple(DBBase):
       if lruDict and self._settings['search_queryCache']:
          self.__queryCache=lruDict(self._settings['search_queryCache'])
       else:
-         self.__queryCache=None
+         self.workspace.log((2 if self._settings['search_queryCache'] else 3), 'Module `lru` not founded, query-cache switched to unlimited')
+         self.__queryCache={}
       return super(DBSearch_simple, self)._connect(**kwargs)
 
    def query(self, what=None, branch=None, where=None, limit=None, pre=None, recursive=True, returnRaw=False, calcProperties=True, env=None, q=None, checkIsEmpty=True, allowCache=True):
