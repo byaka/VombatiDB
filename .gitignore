@@ -1,3 +1,9 @@
+#================= MY_SECTION_START
+**/backup/*
+
+#================= MY_SECTION_END
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
