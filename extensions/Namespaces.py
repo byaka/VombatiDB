@@ -202,7 +202,7 @@ class DBNamespaced(DBBase):
             if __LAInc_enabled[0] and ns in __LAInc_enabled[1]:
                self.__LAInc_enabled[1].remove(ns)
                if not self.__LAInc_enabled[1] and __LAInc_def is False:
-                  self.__LAInc_enabled[1]=False
+                  self.__LAInc_enabled[0]=False
             continue
          nso=nsMap[ns]
          _LAInc=nso['localAutoIncrement']
