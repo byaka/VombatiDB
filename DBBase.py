@@ -821,7 +821,8 @@ class DBBase(object):
       if data is None and not isExist:
          stopwatch()
          return ids
-      elif data is not False:
+      else:
+         if data is False: data=True  #! ВРЕМЕННЫЙ ФИКС
          tArr=((ids, (isExist, data, allowMerge, props, propsUpdate)),)
          self._setData(tArr, **kwargs)
       if data is None:
