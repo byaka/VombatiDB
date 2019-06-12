@@ -144,6 +144,7 @@ class DBStorePersistentWithCache(DBBase):
                if skip:
                   skip-=1
                   continue
+               line=line.decode('utf-8')
                if line and line[-1]=='\n': line=line[:-1]
                if not line and ids is None: pass  # just empty line
                elif ids is None:
@@ -341,6 +342,7 @@ class DBStorePersistentWithCache(DBBase):
                   _props={k:v for k,v in props.iteritems() if k in propRules['persistent']}
                   _props=pickle.dumps(_props, pickle.HIGHEST_PROTOCOL).encode('string_escape') if _props else ''
                   line='\n%s\n%s\n%s'%(_ids, _props, _data)
+                  line=line.encode('utf-8')
                   f.write(line)
                   c+=1
                except Exception:
@@ -389,6 +391,7 @@ class DBStorePersistentWithCache(DBBase):
                   if not _props and _data=='+': continue
                   _ids='\t'.join(ids)
                   line='\n%s\n%s\n%s'%(_ids, _props, _data)
+                  line=line.encode('utf-8')
                   f.write(line)
                   c+=1
             self.workspace.log(3, 'Saved Data to fs-store (%i items) in %ims'%(c, getms(inMS=True)-mytime2))
