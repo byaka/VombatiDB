@@ -327,6 +327,16 @@ class DBBase(object):
          if not isFunction(old): old=None
          signal.signal(s, bind(tFunc, {'old':old}))
 
+   def isGoodId(self, ids, needException=False):
+      ids=(ids,) if isinstance(ids, (str, unicode)) else ids
+      for id in ids:
+         r=not self._idBadPattern(id)
+         if r: continue
+         elif needException:
+            raise BadIdError(id)
+         else: return False
+      return True
+
    def _initMeta(self):
       self.__meta={}
       self._loadedMeta(self.__meta)
