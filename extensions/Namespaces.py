@@ -60,6 +60,7 @@ class DBNamespaced(DBBase):
       self.settings.ns_default_allowLocalAutoIncrement=False
       self.settings.ns_localAutoIncrement_reservation=False
       self.settings.ns_globalAutoIncrement_reservation=False
+      self.namespace_pattern_clean_delimeter=re.compile(r'^[\-\.\s#$@]{1}')
       self.namespace_pattern_parse=re.compile(r'^([a-zA-Z_]+)(\d+|[\-\.\s#$@].+)$')
       self.namespace_pattern_check=re.compile(r'^[a-zA-Z_]+$')
 
@@ -114,6 +115,7 @@ class DBNamespaced(DBBase):
       if andClear:
          old=self.__ns.copy()
          self.__ns.clear()
+         self.__LAInc_enabled=[False, set()]
          for ns, nsoOld in old.iteritems():
             self._namespaceChanged(ns, None, nsoOld)
       #! добавить поддержку разных форматов конфига с авто-конвертом в дефолтный
@@ -159,12 +161,12 @@ class DBNamespaced(DBBase):
       if isinstance(nsoNow['localAutoIncrement'], set) and not nsoNow['localAutoIncrement']:
          nsoNow['localAutoIncrement']=False
       #
-      self.__calcLAInc(onlyFor=ns)
       if not nsoOld or nsoOld!=nsoNow:
          nsMap[ns]=nsoNow
          self._namespaceChanged(ns, nsoNow, nsoOld)
          if allowCheckIndex and self._settings['ns_checkIndexOnUpdateNS']:
             self._checkIndexForNS(calcGlobalMaxIndex=ns, calcLocalMaxIndex=ns)
+      self.__calcLAInc(onlyFor=ns)
 
    def delNS(self, ns, strictMode=True, allowCheckIndex=True):
       if not isString(ns) or not self.namespace_pattern_check.match(ns):
@@ -200,9 +202,9 @@ class DBNamespaced(DBBase):
       for ns in onlyFor:
          if ns not in nsMap:
             if __LAInc_enabled[0] and ns in __LAInc_enabled[1]:
-               self.__LAInc_enabled[1].remove(ns)
-               if not self.__LAInc_enabled[1] and __LAInc_def is False:
-                  self.__LAInc_enabled[0]=False
+               __LAInc_enabled[1].remove(ns)
+               if not __LAInc_enabled[1] and __LAInc_def is False:
+                  __LAInc_enabled[0]=False
             continue
          nso=nsMap[ns]
          _LAInc=nso['localAutoIncrement']
@@ -237,7 +239,10 @@ class DBNamespaced(DBBase):
                raise NamespaceIndexError('index required for NS(%s)'%(nsNow,))
             if nsiNow is not None:
                try:
-                  nsiNow=int(nsiNow)
+                  if isinstance(nsiNow, (str, unicode)):
+                     nsiNow=int(self.namespace_pattern_clean_delimeter.sub('', nsiNow))
+                  else:
+                     nsiNow=int(nsiNow)
                   numerable_nsiNow=True
                except (ValueError, TypeError):
                   if nsoNow['onlyNumerable']:
@@ -400,7 +405,10 @@ class DBNamespaced(DBBase):
             raise NamespaceIndexError('index required for NS(%s)'%(nsNow,))
          if nsiNow is not None:
             try:
-               nsiNow=int(nsiNow)
+               if isinstance(nsiNow, (str, unicode)):
+                  nsiNow=int(self.namespace_pattern_clean_delimeter.sub('', nsiNow))
+               else:
+                  nsiNow=int(nsiNow)
                numerable_nsiNow=True
             except (ValueError, TypeError):
                if nsoNow['onlyNumerable']:
@@ -437,7 +445,8 @@ class DBNamespaced(DBBase):
       idsParent=tuple(ids[:-1])
       wasAutoGen=False
       numerable_nsiNow=False
-      if lastId[-1]=='?':
+      _isPotentialNSAI=self.namespace_pattern_check.match(lastId[:-1]) if len(lastId)>1 else False
+      if _isPotentialNSAI and lastId[-1]=='?':
          # namespace-based globalAutoIncrement newId-generator
          stopwatch1=self.stopwatch('set.globalAutoIncrement@DBNamespaced')
          wasAutoGen=1
@@ -447,7 +456,7 @@ class DBNamespaced(DBBase):
          nsiNow=self._generateIdNS_globalAutoIncrement(nsNow, nsoNow)
          lastId=ids[-1]='%s%i'%(nsNow, nsiNow)
          stopwatch1()
-      elif lastId[-1]=='+':
+      elif _isPotentialNSAI and lastId[-1]=='+':
          # namespace-based localAutoIncrement newId-generator
          if _idsLen==1:
             raise NamespaceGenerateIdError('No parent for NS(%s)'%(ns,))
