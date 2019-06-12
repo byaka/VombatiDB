@@ -202,7 +202,11 @@ class DBWithColumns(DBBase):
             if isinstance(data[k], types): continue
             stopwatch1()
             stopwatch()
-            raise ColumnError('Value of column "%s" for %s has incorrect type, must be %s'%(k, tuple(idForErr), ' or '.join(getattr(s, '__name__', str(s)) for s in types)))
+            raise ColumnError('Value of column "%s" for %s has incorrect type, must be %s, but passed %s'%(
+               k,
+               tuple(idForErr), ' or '.join(getattr(s, '__name__', str(s)) for s in types),
+               getattr(type(data[k]), '__name__', str(type(data[k])))
+            ))
          stopwatch1()
       stopwatch()
 
