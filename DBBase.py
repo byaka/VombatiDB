@@ -524,7 +524,7 @@ class DBBase(object):
       if props is None:
          badLinkChain=[]
          try:
-            isExist, propsPre, _=self._findInIndex(ids, strictMode=True, calcProperties=calcProperties, linkChain=badLinkChain)
+            isExist, props, _=self._findInIndex(ids, strictMode=True, calcProperties=calcProperties, linkChain=badLinkChain)
          except BadLinkError:
             # удаляем плохой линк
             for _ids, _props in reversed(badLinkChain):
