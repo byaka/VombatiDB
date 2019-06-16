@@ -512,11 +512,11 @@ class DBNamespaced(DBBase):
                   _queueExtend(props2['backlink'])
             stopwatch1()
       # all checkings passed
-      needReplaceMaxIndex=numerable_nsiNow and not isExist and nsoNow and nsiNow and data is not None and data is not False and isinstance(nsiNow, int)
+      needReplaceMaxIndex=numerable_nsiNow and not isExist and nsoNow and nsiNow and isinstance(nsiNow, int)  #? здесь было ` and data is not None` что отключает корректировку автоинкрементов при удалении обьекта
       stopwatch()
       r=super(DBNamespaced, self).set(ids, data, allowMerge=allowMerge, existChecked=(isExist, props), onlyIfExist=onlyIfExist, strictMode=strictMode, **kwargs)
       # инкрементим `maxIndex` после добавления, чтобы в случае ошибки не увеличивать счетчик
-      if r is not False and needReplaceMaxIndex:
+      if needReplaceMaxIndex:
          # globalAutoIncrement
          if nsoNow is not None and (wasAutoGen is False or not self._settings['ns_globalAutoIncrement_reservation']):
             nsoNow['maxIndex']=max(nsoNow['maxIndex'], nsiNow)
@@ -525,7 +525,7 @@ class DBNamespaced(DBBase):
             stopwatch1=self.stopwatch('set_updateAutoIncrement.local@DBNamespaced')
             tArr=nsoNow['localAutoIncrement'] if nsoNow is not None else self._settings['ns_default_allowLocalAutoIncrement']
             if tArr is True or nsPrev in tArr:
-               _, propsParrent, _=self._findInIndex(ids[:-1], strictMode=True, calcProperties=False)
+               _, propsParrent, _=self._findInIndex(idsParent, strictMode=True, calcProperties=False)
                if 'localAutoIncrement' not in propsParrent:
                   tArr={nsNow:nsiNow}
                else:
