@@ -129,6 +129,25 @@ class DBMatchableLinks(DBBase):
          stopwatch()
       return _status
 
+   def getLinks(self, ids, props=None, strictMode=True, safeMode=True):
+      if props is None:
+         badLinkChain=[]
+         try:
+            isExist, props, _=self._findInIndex(ids, strictMode=True, calcProperties=True, linkChain=badLinkChain)
+         except BadLinkError:
+            # удаляем плохой линк
+            for _ids, _props in reversed(badLinkChain):
+               self.set(_ids, None, existChecked=_props, allowForceRemoveChilds=True)
+            raise StopIteration
+         if not isExist:
+            if strictMode:
+               raise NotExistError(ids)
+            else:
+               return set()
+      if not props or 'linkedChilds' not in props or not props['linkedChilds']:
+         return set()
+      return props['linkedChilds'].copy() if safeMode else props['linkedChilds']
+
    #? поскольку prop@backlink хранится также в виде сэта, данная функция может работать и с ним што может быть весьма полезным. однако нужна возможность обратиться к данной пропе по идсам (сейчас при передаче идсов автоматически берутся linkedChilds). возможно не стоит так сильно позиционировать данное расширение именно для работы с линкедчайлд, и сделать его более универсальным - хотябы для работы с бэклинками.
    def matchLinks(self, idsList, like='and', skipEmpty=False, skipNotExists=True, strictMode=True, skipLinkChecking=False):
       if not callable(like):
