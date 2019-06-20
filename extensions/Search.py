@@ -162,44 +162,44 @@ class DBSearch_simple(DBBase):
             for (IDS_PARENT, (PROPS_PARENT, CHILDS_PARENT)), (IDS, (PROPS, CHILDS)) in g:
                ID=IDS[-1]"""%(branch, recursive, calcProperties)]
       _code=code.append
-      _indent1=_tab*5
+      _tabs=tuple(_tab*(4+i) for i in xrange(4))
       if _ns_need1:
-         _code(_indent1+"NS, INDEX=db_parseId2NS(ID)")
+         _code(_tabs[1]+"NS, INDEX=db_parseId2NS(ID)")
       if _data_need1:
-         _code(_indent1+"try: DATA=db_get(IDS, existChecked=PROPS, returnRaw=%s, strictMode=True)"%(returnRaw))
-         _code(_indent1+"except _StrictModeError: continue")
+         _code(_tabs[1]+"try: DATA=db_get(IDS, existChecked=PROPS, returnRaw=%s, strictMode=True)"%(returnRaw))
+         _code(_tabs[1]+"except _StrictModeError: continue")
       if where:
          if where_isMultiline:
-            _code(_indent1+'# WHERE-block'+where)
-            _code(_indent1+"if not(WHERE): continue\n"+_indent1+'# WHERE-block ended')
+            _code(_tabs[1]+'# WHERE-block'+where)
+            _code(_tabs[1]+"if not(WHERE): continue\n"+_tabs[1]+'# WHERE-block ended')
          else:
-            _code(_indent1+"if %s: continue  # WHERE-condition"%where)
+            _code(_tabs[1]+"if %s: continue  # WHERE-condition"%where)
       if not _ns_need1 and _ns_need2:
-         _code(_indent1+"NS, INDEX=db_parseId2NS(ID)")
+         _code(_tabs[1]+"NS, INDEX=db_parseId2NS(ID)")
       if not _data_need1 and _data_need2:
-         _code(_indent1+"try: DATA=db_get(IDS, existChecked=PROPS, returnRaw=%s, strictMode=True)"%(returnRaw))
-         _code(_indent1+"except _StrictModeError: continue")
+         _code(_tabs[1]+"try: DATA=db_get(IDS, existChecked=PROPS, returnRaw=%s, strictMode=True)"%(returnRaw))
+         _code(_tabs[1]+"except _StrictModeError: continue")
       if not returnRaw:
-         _code(_indent1+"PROPS=_MagicDict(PROPS)")
+         _code(_tabs[1]+"PROPS=_MagicDict(PROPS)")
       if limit==1:
          if what_isMultiline:
-            _code(_indent1+'# WHAT-block'+what)
-            _code(_indent1+"return WHAT\n"+_indent1+'# WHAT-block ended')
+            _code(_tabs[1]+'# WHAT-block'+what)
+            _code(_tabs[1]+"return WHAT\n"+_tabs[1]+'# WHAT-block ended')
          else:
-            _code(_indent1+"return "+what)
+            _code(_tabs[1]+"return "+what)
       else:
          if what_isMultiline:
-            _code(_indent1+'# WHAT-block'+what)
-            _code(_indent1+"extCmd=yield WHAT\n"+_indent1+'# WHAT-block ended')
+            _code(_tabs[1]+'# WHAT-block'+what)
+            _code(_tabs[1]+"extCmd=yield WHAT\n"+_tabs[1]+'# WHAT-block ended')
          else:
-            _code(_indent1+"extCmd=yield "+what)
-         _code(_indent1+"c+=1")
+            _code(_tabs[1]+"extCmd=yield "+what)
+         _code(_tabs[1]+"c+=1")
          if limit:
-            _code(_indent1+"if c>=%i: break"%limit)
-         _code(_indent1+"if extCmd is not None:")
-         _code(_indent1+_tab+"yield")
-         _code(_indent1+_tab+"g.send(extCmd)")
-      _code(_tab*3+"except Exception: __QUERY_ERROR_HANDLER(RUN.source, %s)"%qRaw)
+            _code(_tabs[1]+"if c>=%i: break"%limit)
+         _code(_tabs[1]+"if extCmd is not None:")
+         _code(_tabs[2]+"yield")
+         _code(_tabs[2]+"g.send(extCmd)")
+      _code(_tabs[3]+"except Exception: __QUERY_ERROR_HANDLER(RUN.source, %s)"%qRaw)
       _code("RUN.query=%s"%qRaw)
       _code("RUN.dump=lambda: '''%s'''"%qRaw)
       #
