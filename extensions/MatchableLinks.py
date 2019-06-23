@@ -129,7 +129,7 @@ class DBMatchableLinks(DBBase):
          stopwatch()
       return _status
 
-   def getLinks(self, ids, props=None, strictMode=True, safeMode=True):
+   def getLinked(self, ids, props=None, strictMode=True, safeMode=True):
       if props is None:
          badLinkChain=[]
          try:
