@@ -72,6 +72,19 @@ class DBSearch_simple(DBBase):
             res=()
       return res
 
+   @staticmethod
+   def _indentMultilineSource(tab, lines):
+      queue=deque((0, s) for s in lines)
+      while queue:
+         lvl, line=queue.popleft()
+         if not line: continue
+         elif isinstance(line, (str, unicode)):
+            yield (tab*lvl)+line
+         else:
+            for _line in reversed(line):
+               queue.appendleft((lvl+1, _line))
+      raise StopIteration
+
    def queryPrep(self, what=None, branch=None, where=None, limit=None, pre=None, recursive=True, returnRaw=False, calcProperties=True, precompile=True, allowCache=True):
       stopwatch=self.stopwatch('queryPrep%s@DBSearch_simple'%('-precompile' if precompile else ''))
       _tab=' '*3
@@ -82,7 +95,7 @@ class DBSearch_simple(DBBase):
          if isinstance(what, (list, tuple)):
             _what=', '.join(what)
             what_isMultiline=self.query_pattern_check_what.search(_what) is not None
-            what=_what if not what_isMultiline else ('\n'+_tab*5)+('\n'+_tab*5).join(what)
+            what=_what if not what_isMultiline else ('\n'+_tab*5)+('\n'+_tab*5).join(self._indentMultilineSource(_tab, what))
          else:
             what='(%s)'%what
       else:
@@ -97,7 +110,7 @@ class DBSearch_simple(DBBase):
          if isinstance(where, (list, tuple)):
             _where=' and '.join(where)
             where_isMultiline=self.query_pattern_check_where.search(_where) is not None
-            where=_where if not where_isMultiline else ('\n'+_tab*5)+('\n'+_tab*5).join(where)
+            where=_where if not where_isMultiline else ('\n'+_tab*5)+('\n'+_tab*5).join((self._indentMultilineSource(_tab, where)))
          else:
             where='not(%s)'%where
       else:
@@ -105,7 +118,7 @@ class DBSearch_simple(DBBase):
       if not pre: pre=''
       elif isinstance(pre, (str, unicode, list, tuple)):
          if isinstance(pre, (list, tuple)):
-            pre=('\n'+_tab*4)+('\n'+_tab*4).join(pre)
+            pre=('\n'+_tab*4)+('\n'+_tab*4).join(self._indentMultilineSource(_tab, pre))
          else:
             pre=('\n'+_tab*4)+pre
          pre='\n'+_tab*4+'# PRE-block'+pre+'\n'+_tab*4+'# PRE-block end'
@@ -155,6 +168,8 @@ class DBSearch_simple(DBBase):
          try:"""+pre+"""
             db_parseId2NS=DB._parseId2NS
             db_get=DB.get
+            db_getBacklinks=DB.getBacklinks
+            db_iterBacklinks=DB.iterBacklinks
             _MagicDict=MagicDict
             _StrictModeError=StrictModeError
             c=0
@@ -174,6 +189,7 @@ class DBSearch_simple(DBBase):
             _code(_tabs[1]+"if not(WHERE): continue\n"+_tabs[1]+'# WHERE-block ended')
          else:
             _code(_tabs[1]+"if %s: continue  # WHERE-condition"%where)
+      #! нужно проверять, используются ли NS, INDEX или DATA внутри блока `WHERE` и менять местами блоки если да
       if not _ns_need1 and _ns_need2:
          _code(_tabs[1]+"NS, INDEX=db_parseId2NS(ID)")
       if not _data_need1 and _data_need2:
