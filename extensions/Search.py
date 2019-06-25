@@ -27,6 +27,8 @@ __version__ = "%d.%d.%d" % (__ver_major__, __ver_minor__, __ver_patch__)
 from ..utils import *
 from ..DBBase import DBBase
 
+import textwrap
+
 def __init():
    return DBSearch_simple, ('Search', 'Query')
 
@@ -40,7 +42,6 @@ class DBSearch_simple(DBBase):
       self.query_pattern_check_where=re.compile(r'[^\w\d_]+WHERE[^\w\d_]+')
       self.query_pattern_check_data=re.compile(r'[^\w\d_]+DATA[^\w\d_]+')
       self.query_pattern_check_ns=re.compile(r'[^\w\d_]+NS|INDEX[^\w\d_]+')
-      self.query_pattern_clear_indent=re.compile(r'^ {6}', re.MULTILINE)
       self.query_pattern_globalsRepared='__GLOBALS_REPARED'
       self.query_envName='<DBSearch_simple.query>'
       self.settings.search_queryCache=1000
@@ -220,7 +221,7 @@ class DBSearch_simple(DBBase):
       _code("RUN.dump=lambda: '''%s'''"%qRaw)
       #
       code='\n'.join(code)
-      code=self.query_pattern_clear_indent.sub('', code.strip('\n'))
+      code=textwrap.dedent(code)
       # fileWrite(getScriptPath()+'/q_compiled.py', code)
       if precompile:
          code+='\nRUN.source="""%s"""'%code
