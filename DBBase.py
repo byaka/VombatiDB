@@ -166,9 +166,7 @@ class DBBase(object):
       self._idBadPattern=tEnv['RUN']
 
    def stopwatch(self, name):
-      mytime=timetime()
-      #? проверить, что быстрее - создание этой функции в рантайме или использование `bind()`
-      def tFunc(mytime=mytime, name=name, self=self):
+      def tFunc(mytime=timetime(), name=name, self=self):
          val=timetime()-mytime
          self._speedStats[name].append(val)
          if val>self._speedStatsMax[name]:
@@ -529,6 +527,8 @@ class DBBase(object):
             for _ids, _props in reversed(badLinkChain):
                self.set(_ids, None, existChecked=_props, allowForceRemoveChilds=True)
             raise StopIteration
+         except ParentNotExistError:
+            isExist=False
          if not isExist:
             if strictMode:
                raise NotExistError(ids)
@@ -549,6 +549,8 @@ class DBBase(object):
             for _ids, _props in reversed(badLinkChain):
                self.set(_ids, None, existChecked=_props, allowForceRemoveChilds=True)
             raise StopIteration
+         except ParentNotExistError:
+            isExist=False
          if not isExist:
             if strictMode:
                raise NotExistError(ids)
@@ -616,7 +618,7 @@ class DBBase(object):
          branch=self.__index
       return branch.keys() if safeMode else branch
 
-   def iterBranch(self, ids=None, recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True, skipLinkChecking=False, allowContextSwitch=True, returnParent=False):
+   def iterBranch(self, ids=None, strictMode=True, recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True, skipLinkChecking=False, allowContextSwitch=True, returnParent=False):
       mytime=timetime()
       _soLong=self._settings['iterBranch_soLong'] if allowContextSwitch else False
       _sleepTime=self._settings['iterBranch_sleepTime']
@@ -637,8 +639,11 @@ class DBBase(object):
             for _ids, _props in reversed(badLinkChain):
                self.set(_ids, None, existChecked=_props, allowForceRemoveChilds=True)
             raise StopIteration
+         except ParentNotExistError:
+            isExist=False
          if not isExist:
-            raise StopIteration
+            if strictMode: raise NotExistError(ids)
+            else: raise StopIteration
          if offsetLast: ids=ids[:-1]
       else:
          if propMerger and propRules['defaultMinimalProps'] is not None:
