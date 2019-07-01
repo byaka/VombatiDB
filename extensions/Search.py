@@ -165,20 +165,20 @@ class DBSearch_simple(DBBase):
          else:
             what='IDS, (PROPS, CHILDS)'
       code=["""
-      def RUN():
-         try:"""+pre+"""
-            db_parseId2NS=DB._parseId2NS
-            db_get=DB.get
-            db_getBacklinks=DB.getBacklinks
-            db_iterBacklinks=DB.iterBacklinks
-            _MagicDict=MagicDict
-            _StrictModeError=StrictModeError
-            c=0
-            g=DB.iterBranch(%s, recursive=%s, calcProperties=%s, treeMode=False, safeMode=True, returnParent=True)
-            for (IDS_PARENT, (PROPS_PARENT, CHILDS_PARENT)), (IDS, (PROPS, CHILDS)) in g:
-               ID=IDS[-1]"""%(branch, recursive, calcProperties)]
+         def RUN():
+            try:"""+pre+"""
+               db_parseId2NS=DB._parseId2NS
+               db_get=DB.get
+               db_getBacklinks=DB.getBacklinks
+               db_iterBacklinks=DB.iterBacklinks
+               _MagicDict=MagicDict
+               _StrictModeError=StrictModeError
+               c=0
+               g=DB.iterBranch(%s, recursive=%s, calcProperties=%s, treeMode=False, safeMode=True, returnParent=True)
+               for (IDS_PARENT, (PROPS_PARENT, CHILDS_PARENT)), (IDS, (PROPS, CHILDS)) in g:
+                  ID=IDS[-1]"""%(branch, recursive, calcProperties)]
       _code=code.append
-      _tabs=tuple(_tab*(4+i) for i in xrange(4))
+      _tabs=tuple(_tab*(5+i) for i in xrange(4))
       if _ns_need1:
          _code(_tabs[1]+"NS, INDEX=db_parseId2NS(ID)")
       if _data_need1:
@@ -196,7 +196,7 @@ class DBSearch_simple(DBBase):
       if not _data_need1 and _data_need2:
          _code(_tabs[1]+"try: DATA=db_get(IDS, existChecked=PROPS, returnRaw=%s, strictMode=True)"%(returnRaw))
          _code(_tabs[1]+"except _StrictModeError: continue")
-      if not returnRaw:
+      if not returnRaw:  #! нужно проверять, используется ли PROPS
          _code(_tabs[1]+"PROPS=_MagicDict(PROPS)")
       if limit==1:
          if what_isMultiline:
@@ -216,13 +216,14 @@ class DBSearch_simple(DBBase):
          _code(_tabs[1]+"if extCmd is not None:")
          _code(_tabs[2]+"yield")
          _code(_tabs[2]+"g.send(extCmd)")
-      _code(_tabs[3]+"except Exception: __QUERY_ERROR_HANDLER(RUN.source, %s)"%qRaw)
-      _code("RUN.query=%s"%qRaw)
-      _code("RUN.dump=lambda: '''%s'''"%qRaw)
+      _code("""
+            except Exception: __QUERY_ERROR_HANDLER(RUN.source, RUN.query)
+         RUN.query=%s
+      """%qRaw)
       #
       code='\n'.join(code)
       code=textwrap.dedent(code)
-      # fileWrite(getScriptPath()+'/q_compiled.py', code)
+      # fileWrite('q_compiled.py', code)
       if precompile:
          code+='\nRUN.source="""%s"""'%code
          code=compile(code, self.query_envName, 'exec')
@@ -240,14 +241,16 @@ class DBSearch_simple(DBBase):
       else:
          raise ValueError('Incorrect type of query: %r'%(q,))
       if env is None:
-         env=self._main_app.__dict__
+         env={}
+      elif env is True:
+         env=self._main_app.__dict__.copy()
       elif isinstance(env, dict):
-         pass
+         env=env.copy()
       else:
          raise ValueError('Incorrect type for `env` arg')
       #
       if not qIsF:
-         tArr=env.copy()
+         tArr=env
       else:
          tArr=qFunc.func_globals
          tArr.update(env)
