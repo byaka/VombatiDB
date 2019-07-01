@@ -54,6 +54,7 @@ class DBMatchableLinks(DBBase):
       self.__reparePropFromIndex()
 
    def __isEnabled(self, ids, doDefault=NULL):
+      #! нужно генерировать ответ при инициализации или хотябы кешировать
       stopwatch=self.stopwatch('__isEnabled@DBMatchableLinks')
       if doDefault is NULL:
          doDefault=self._settings['linkedChilds_default_do']
@@ -62,24 +63,28 @@ class DBMatchableLinks(DBBase):
          _inherit=self._settings['linkedChilds_inheritNSFlags']
          _inheritCallable=_inherit and callable(_inherit)
          if _inherit:
-            doLinkedChilds=True
+            doLinkedChilds=NULL
             for _, _, _, nso in self.ids2ns_generator(ids):
-               v=doDefault if nso is None or nso['linkChilds'] is None else nso['linkChilds']
+               v=doDefault if nso is None else nso['linkChilds']
+               if v is None and _inherit:
+                  continue
                if _inheritCallable:
                   doLinkedChilds=_inherit(doLinkedChilds, v)
                else:
                   doLinkedChilds=doLinkedChilds and v
                if not doLinkedChilds: break
+            if doLinkedChilds is NULL:
+               doLinkedChilds=False
          else:
             _, _, nso=self._parseId2NS(ids[-1], needNSO=True)
-            doLinkedChilds=doDefault if nso is None or nso['linkChilds'] is None else nso['linkChilds']
+            doLinkedChilds=doDefault if (nso is None or nso['linkChilds'] is None) else nso['linkChilds']
          if not doLinkedChilds: r=False
       elif not doDefault: r=False
       stopwatch()
       return r
 
    def __reparePropFromIndex(self):
-      #! разным расширениям зачастую нужен механизм обхода всех обьектов при инициализации. нет смысла делать это раздельно, нужен единый механизм
+      stopwatch=self.stopwatch('__reparePropFromIndex@DBMatchableLinks')
       _parentPrev=None
       _queue=None
       for ids, (props, l) in self.iterBranch(recursive=True, treeMode=True, safeMode=False, offsetLast=False, calcProperties=False):
@@ -101,6 +106,7 @@ class DBMatchableLinks(DBBase):
       #
       if _queue and _parentPrev and self.__isEnabled(_parentPrev):
          self._markInIndex(_parentPrev, strictMode=True, linkedChilds=_queue)
+      stopwatch()
 
    def _linkModified(self, ids, props, branch, wasExisted, oldLink, doLinkedChilds=None, **kwargs):
       _status=super(DBMatchableLinks, self)._linkModified(ids, props, branch, wasExisted, oldLink, **kwargs)
@@ -139,6 +145,8 @@ class DBMatchableLinks(DBBase):
             for _ids, _props in reversed(badLinkChain):
                self.set(_ids, None, existChecked=_props, allowForceRemoveChilds=True)
             raise StopIteration
+         except ParentNotExistError:
+            isExist=False
          if not isExist:
             if strictMode:
                raise NotExistError(ids)
