@@ -210,7 +210,7 @@ class DBWithColumns(DBBase):
          stopwatch1()
       stopwatch()
 
-   #! когда LocalAutoIncrement генерил уже существующие адишники, почемуто не выполнялась проверка колонок, хотя должна была. когда он начал выдавать корректные айдишники, все заработало
+   #! когда LocalAutoIncrement генерил уже существующие адишники, почемуто не выполнялась проверка колонок, хотя должна была. когда он начал выдавать корректные айдишники, все заработало, но нужно глянуть изза чего такое могло быть
    def _validateOnSetNS(self, ids, data, nsNow, nsiNow, nsoNow, nsPrev, nsiPrev, nsoPrev, propsUpdate=None, isExist=None, props=None, **kwargs):
       r=super(DBWithColumns, self)._validateOnSetNS(ids, data, nsNow, nsiNow, nsoNow, nsPrev, nsiPrev, nsoPrev, propsUpdate=propsUpdate, isExist=isExist, props=props, **kwargs)
       stopwatch=self.stopwatch('_validateOnSetNS@DBWithColumns')
