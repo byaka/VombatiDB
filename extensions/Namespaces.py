@@ -266,6 +266,7 @@ class DBNamespaced(DBBase):
    def _checkIndexForNS(self, calcGlobalMaxIndex=True, calcLocalMaxIndex=False):
       #! разным расширениям зачастую нужен механизм обхода всех обьектов при инициализации. нет смысла делать это раздельно, нужен единый механизм
       #? однако этаже функция используется при реконфигурации неймспейсов для выполнения валидации.
+      stopwatch=self.stopwatch('_checkIndexForNS@DBNamespaced')
       nsMap=self.__ns
       if not nsMap: return
       __LAInc_enabled=self.__LAInc_enabled
@@ -296,6 +297,7 @@ class DBNamespaced(DBBase):
          idsChain=self._checkIdsNS(ids, nsIndexMap=nsIndexMap, props=props, childCount=l)
          _, ns, nsi, nso, numerable_nsiNow=idsChain[-1]
          # localAutoIncrement
+         stopwatch1=self.stopwatch('_checkIndexForNS.localAutoIncrement@DBNamespaced')
          if numerable_nsiNow and (calcLocalMaxIndex is True or (calcLocalMaxIndex is not False and ns in calcLocalMaxIndex)) and idsParent and (ns in __LAInc_enabled[1] or nso is None):
             tArr=nso['localAutoIncrement'] if nso is not None else __LAInc_def
             if tArr is True or (tArr is not False and self._parseId2NS(idsParent[-1])[0] in tArr):
@@ -306,21 +308,23 @@ class DBNamespaced(DBBase):
                   else:
                      tArr=tArr.copy()
                      tArr[ns]=nsi
-               elif propsParent:
-                  tArr=propsParent['localAutoIncrement'].copy()
-                  tArr[ns]=nsi
                else:
+                  if not propsParent: propsParent={}  #~ для совместимости с хаком ниже
                   tArr={ns:nsi}
                if tArr is not None:
                   self. _markInIndex(idsParent, strictMode=True, createNotExisted=False, localAutoIncrement=tArr)
-                  propsParent['localAutoIncrement']=tArr  #? генератор `iterBranch` не отслеживает изменение родителя в процессе работы и отдает всегда начальные данные
+                  propsParent['localAutoIncrement']=tArr  #~ генератор `iterBranch` не отслеживает изменение родителя в процессе работы и отдает всегда начальные данные
+         stopwatch1()
       # globalAutoIncrement
       if calcGlobalMaxIndex is not False and nsIndexMap:
+         stopwatch1=self.stopwatch('_checkIndexForNS.globalAutoIncrement@DBNamespaced')
          for ns in calcGlobalMaxIndex:
             if ns not in nsIndexMap: continue
             nso=nsMap[ns]
             if not nso['maxIndex']: nso['maxIndex']=0
             nso['maxIndex']=max(nso['maxIndex'], *nsIndexMap[ns])
+         stopwatch1()
+      stopwatch()
 
    def _parseId2NS(self, id, needNSO=False):
       stopwatch=self.stopwatch('_parseId2NS@DBNamespaced')
@@ -347,7 +351,7 @@ class DBNamespaced(DBBase):
       stopwatch()
       return ii
 
-   def _generateIdNS_localAutoIncrement(self, ns, nso, nsPrev, idsParent, propsParrent):
+   def _generateIdNS_localAutoIncrement(self, ns, nso, nsPrev, idsParent, propsParent):
       if not self.__LAInc_enabled[0] or (ns not in self.__LAInc_enabled[1] and ns is not None):
          raise NamespaceGenerateIdError('LocalAutoIncrement disabled for parent NS(%s) by NS(%s)'%(nsPrev, ns))
       stopwatch=self.stopwatch('_generateIdNS_localAutoIncrement@DBNamespaced')
@@ -357,11 +361,11 @@ class DBNamespaced(DBBase):
          tArr=self._settings['ns_default_allowLocalAutoIncrement']
       if tArr is not True and nsPrev not in tArr:
          raise NamespaceGenerateIdError('LocalAutoIncrement disabled for parent NS(%s) by NS(%s)'%(nsPrev, ns))
-      if 'localAutoIncrement' not in propsParrent:
+      if 'localAutoIncrement' not in propsParent:
          if self._settings['ns_localAutoIncrement_reservation']: tArr={ns:1}
          ii=1
       else:
-         tArr=propsParrent['localAutoIncrement']
+         tArr=propsParent['localAutoIncrement']
          if not self._settings['ns_localAutoIncrement_reservation']:
             ii=1 if ns not in tArr else tArr[ns]+1
          else:
@@ -464,10 +468,10 @@ class DBNamespaced(DBBase):
          wasAutoGen=2
          numerable_nsiNow=True
          nsPrev, nsiPrev=self._parseId2NS(ids[-2]) if _idsLen>1 else (None, None)
-         _, propsParrent, _=self._findInIndex(idsParent, strictMode=True, calcProperties=False)
+         _, propsParent, _=self._findInIndex(idsParent, strictMode=True, calcProperties=False)
          nsNow=lastId[:-1]
          nsoNow=nsMap.get(nsNow, None)
-         nsiNow=self._generateIdNS_localAutoIncrement(nsNow, nsoNow, nsPrev, idsParent, propsParrent)
+         nsiNow=self._generateIdNS_localAutoIncrement(nsNow, nsoNow, nsPrev, idsParent, propsParent)
          lastId=ids[-1]='%s%i'%(nsNow, nsiNow)
          stopwatch1()
       else:
@@ -525,11 +529,11 @@ class DBNamespaced(DBBase):
             stopwatch1=self.stopwatch('set_updateAutoIncrement.local@DBNamespaced')
             tArr=nsoNow['localAutoIncrement'] if nsoNow is not None else self._settings['ns_default_allowLocalAutoIncrement']
             if tArr is True or nsPrev in tArr:
-               _, propsParrent, _=self._findInIndex(idsParent, strictMode=True, calcProperties=False)
-               if 'localAutoIncrement' not in propsParrent:
+               _, propsParent, _=self._findInIndex(idsParent, strictMode=True, calcProperties=False)
+               if 'localAutoIncrement' not in propsParent:
                   tArr={nsNow:nsiNow}
                else:
-                  tArr=propsParrent['localAutoIncrement'].copy()
+                  tArr=propsParent['localAutoIncrement'].copy()
                   tArr[nsNow]=max(tArr[nsNow], nsiNow) if nsNow in tArr else nsiNow
                self._markInIndex(idsParent, strictMode=True, createNotExisted=False, localAutoIncrement=tArr)
             stopwatch1()
