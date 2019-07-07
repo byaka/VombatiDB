@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 __ver_major__ = 0
-__ver_minor__ = 2
+__ver_minor__ = 3
 __ver_patch__ = 0
 __ver_sub__ = "dev"
 __version__ = "%d.%d.%d" % (__ver_major__, __ver_minor__, __ver_patch__)
@@ -89,6 +89,7 @@ class DBSearch_simple(DBBase):
    def queryPrep(self, what=None, branch=None, where=None, limit=None, pre=None, recursive=True, returnRaw=False, calcProperties=True, precompile=True, allowCache=True):
       stopwatch=self.stopwatch('queryPrep%s@DBSearch_simple'%('-precompile' if precompile else ''))
       _tab=' '*3
+      _tabs=tuple(_tab*(5+i) for i in xrange(4))
       what_isMultiline=False
       where_isMultiline=False
       if not what or what=='*': what=None
@@ -96,7 +97,7 @@ class DBSearch_simple(DBBase):
          if isinstance(what, (list, tuple)):
             _what=', '.join(what)
             what_isMultiline=self.query_pattern_check_what.search(_what) is not None
-            what=_what if not what_isMultiline else ('\n'+_tab*5)+('\n'+_tab*5).join(self._indentMultilineSource(_tab, what))
+            what=_what if not what_isMultiline else ('\n'+_tabs[1])+('\n'+_tabs[1]).join(self._indentMultilineSource(_tab, what))
          else:
             what='(%s)'%what
       else:
@@ -111,7 +112,7 @@ class DBSearch_simple(DBBase):
          if isinstance(where, (list, tuple)):
             _where=' and '.join(where)
             where_isMultiline=self.query_pattern_check_where.search(_where) is not None
-            where=_where if not where_isMultiline else ('\n'+_tab*5)+('\n'+_tab*5).join((self._indentMultilineSource(_tab, where)))
+            where=_where if not where_isMultiline else ('\n'+_tabs[1])+('\n'+_tabs[1]).join((self._indentMultilineSource(_tab, where)))
          else:
             where='not(%s)'%where
       else:
@@ -131,7 +132,7 @@ class DBSearch_simple(DBBase):
          stopwatch()
          return self.__queryCache[qId]
       #
-      qRaw=repr({
+      q={
          'what':what,
          'branch':branch,
          'where':where,
@@ -140,7 +141,8 @@ class DBSearch_simple(DBBase):
          'recursive':recursive,
          'returnRaw':returnRaw,
          'calcProperties':calcProperties,
-      })
+      }
+      qRaw=repr(q)
       #
       _user_input=''
       if where: _user_input+=where
@@ -178,7 +180,6 @@ class DBSearch_simple(DBBase):
                for (IDS_PARENT, (PROPS_PARENT, CHILDS_PARENT)), (IDS, (PROPS, CHILDS)) in g:
                   ID=IDS[-1]"""%(branch, recursive, calcProperties)]
       _code=code.append
-      _tabs=tuple(_tab*(5+i) for i in xrange(4))
       if _ns_need1:
          _code(_tabs[1]+"NS, INDEX=db_parseId2NS(ID)")
       if _data_need1:
@@ -223,10 +224,14 @@ class DBSearch_simple(DBBase):
       #
       code='\n'.join(code)
       code=textwrap.dedent(code)
-      # fileWrite('q_compiled.py', code)
+      # fileWrite('q_compiled.py', code.encode('utf-8'))
       if precompile:
+         _code=code
          code+='\nRUN.source="""%s"""'%code
-         code=compile(code, self.query_envName, 'exec')
+         try:
+            code=compile(code, self.query_envName, 'exec')
+         except Exception:
+            self._queryErrorHandler(_code, q)
       if allowCache:
          self.__queryCache[qId]=code
       stopwatch()
@@ -271,12 +276,18 @@ class DBSearch_simple(DBBase):
       eSource, eLine, eObj, eTB=getErrorInfo(raw=True)
       qArr, lineOffset=q.split('\n')[3:-3], 4
       if eSource==self.query_envName:
-         qArr[eLine-lineOffset]='>>'+qArr[eLine-lineOffset][2:]
+         s='>>'+qArr[eLine-lineOffset][2:]
+         if sys.stdout.isatty():
+            s='%s%s%s'%('\x1b[91m', s, '\x1b[0m')
+         qArr[eLine-lineOffset]=s
          eObj='%s at line %i: %s'%(type(eObj).__name__, eLine, eObj)
       else:
          eSource2, eLine2, eObj2, _=traceback.extract_tb(eTB)[0]
          if eSource2==self.query_envName:
-            qArr[eLine2-lineOffset]='>>'+qArr[eLine2-lineOffset][2:]
+            s='>>'+qArr[eLine2-lineOffset][2:]
+            if sys.stdout.isatty():
+               s='%s%s%s'%('\x1b[91m', s, '\x1b[0m')
+            qArr[eLine2-lineOffset]=s
          eObj='%s%s: %s'%(''.join(traceback.format_tb(eTB)), type(eObj).__name__, eObj)
       q='\n'.join(qArr)
       res+='\n'+'-'*40+'\n'
