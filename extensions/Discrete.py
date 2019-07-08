@@ -6,12 +6,12 @@ __ver_sub__ = "experimental"
 __version__ = "%d.%d.%d" % (__ver_major__, __ver_minor__, __ver_patch__)
 """
 :authors: John Byaka
-:copyright: Copyright 2019, Buber
+:copyright: Copyright 2019, BYaka
 :license: Apache License 2.0
 
 :license:
 
-   Copyright 2019 Buber
+   Copyright 2019 BYaka
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
