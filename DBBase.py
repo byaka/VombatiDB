@@ -517,6 +517,58 @@ class DBBase(object):
          stopwatch()
       return _status
 
+   def countBacklinks(self, ids, props=None, strictMode=False, recursive=False, allowContextSwitch=False):
+      mytime=timetime()
+      if props is None:
+         badLinkChain=[]
+         try:
+            isExist, props, _=self._findInIndex(ids, strictMode=True, calcProperties=False, linkChain=badLinkChain)
+         except BadLinkError:
+            # удаляем плохой линк
+            for _ids, _props in reversed(badLinkChain):
+               self.set(_ids, None, existChecked=_props, allowForceRemoveChilds=True)
+            return 0
+         except ParentNotExistError:
+            isExist=False
+         if not isExist:
+            if strictMode:
+               raise NotExistError(ids)
+            else:
+               return 0
+      if not props or 'backlink' not in props or not props['backlink']:
+         return 0
+      backlink=props['backlink']
+      # fast-case
+      if not recursive:
+         return len(backlink)
+      # iterating
+      _soLong=self._settings['iterBranch_soLong'] if allowContextSwitch else False
+      _sleepTime=self._settings['iterBranch_sleepTime']
+      _sleep=self.workspace.sleep
+      _timetime=timetime
+      queue=deque((backlink,))
+      _queueAppend=queue.append
+      _queuePop=queue.pop
+      res=0
+      while queue:
+         backlink=_queuePop()
+         for ids in backlink:
+            if _soLong and _timetime()-mytime>=_soLong:
+               _sleep(_sleepTime)
+               mytime=_timetime()
+            isExist, propsCurrent, branchCurrent=self._findInIndex(ids, strictMode=True, calcProperties=False)
+            if not isExist:
+               if strictMode:
+                  raise NotExistError(ids)
+               else:
+                  continue
+            res+=1
+            if not recursive: continue
+            if not propsCurrent or 'backlink' not in propsCurrent or not propsCurrent['backlink']: continue
+            backlinkCurrent=propsCurrent['backlink']
+            _queueAppend(backlinkCurrent)
+      return res
+
    def getBacklinks(self, ids, props=None, strictMode=True, safeMode=True):
       if props is None:
          badLinkChain=[]
@@ -538,7 +590,7 @@ class DBBase(object):
          return set()
       return props['backlink'].copy() if safeMode else props['backlink']
 
-   def iterBacklinks(self, ids, props=None, recursive=True, treeMode=True, safeMode=True, calcProperties=True, strictMode=True, allowContextSwitch=True):
+   def iterBacklinks(self, ids, props=None, recursive=False, treeMode=True, safeMode=True, calcProperties=True, strictMode=True, allowContextSwitch=True):
       mytime=timetime()
       if props is None:
          badLinkChain=[]
@@ -596,7 +648,57 @@ class DBBase(object):
             else:
                _queueAppend((iterBacklinksCurrent, backlinkCurrent))
 
-   def getBranch(self, ids=None, strictMode=True, safeMode=True, offsetLast=False):
+   def countBranch(self, ids=None, strictMode=False, offsetLast=False, recursive=False, allowContextSwitch=False, skipLinkChecking=False):
+      mytime=timetime()
+      if ids is not None:
+         # searching enter-point and calc props if needed
+         badLinkChain=[]
+         try:
+            isExist, _, branchCurrent=self._findInIndex(ids, strictMode=True, calcProperties=False, offsetLast=offsetLast, linkChain=badLinkChain)
+         except BadLinkError:
+            # удаляем плохой линк
+            for _ids, _props in reversed(badLinkChain):
+               self.set(_ids, None, existChecked=_props, allowForceRemoveChilds=True)
+            return 0
+         except ParentNotExistError:
+            isExist=False
+         if not isExist:
+            if strictMode: raise NotExistError(ids)
+            else: return 0
+         if offsetLast: ids=ids[:-1]
+      else:
+         ids, branchCurrent=(), self.__index
+      # fast-case
+      if not branchCurrent: return 0
+      elif not recursive and skipLinkChecking: return len(branchCurrent)
+      # iterating
+      _soLong=self._settings['iterBranch_soLong'] if allowContextSwitch else False
+      _sleepTime=self._settings['iterBranch_sleepTime']
+      _sleep=self.workspace.sleep
+      _timetime=timetime
+      _resolveLink=self.resolveLink
+      queue=deque(((ids, branchCurrent),))
+      _queueAppend=queue.append
+      _queuePop=queue.pop
+      res=0
+      while queue:
+         ids, branchParrent=_queuePop()
+         for id in branchParrent:
+            if _soLong and _timetime()-mytime>=_soLong:
+               _sleep(_sleepTime)
+               mytime=_timetime()
+            propsCurrent, branchCurrent=branchParrent[id]
+            # validating link's target
+            if not skipLinkChecking and 'link' in propsCurrent and propsCurrent['link']:
+               _resolveLink(propsCurrent['link'], idsPrepared=True)
+            ids2=ids+(id,)
+            res+=1
+            if not recursive: continue
+            if not branchCurrent: continue
+            _queueAppend((ids2, branchCurrent))
+      return res
+
+   def getBranch(self, ids=None, strictMode=True, safeMode=True, recursive=True, offsetLast=False):
       if ids is not None:
          # searching enter-point and calc props if needed
          badLinkChain=[]
@@ -683,7 +785,7 @@ class DBBase(object):
                yield  # this allows to use our generator inside `for .. in ..` without skipping on `send`
                if extCmd is False: continue
             if not recursive: continue
-            if not _len(branchCurrent): continue
+            if not branchCurrent: continue
             iterCurrent=_iter(branchCurrent.keys()) if safeMode else branchCurrent.iterkeys()
             if treeMode:
                _queueAppend((ids, iterParrent, branchParrent, propsParrent))
