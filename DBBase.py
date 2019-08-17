@@ -519,6 +519,7 @@ class DBBase(object):
 
    def countBacklinks(self, ids, props=None, strictMode=False, recursive=False, allowContextSwitch=False):
       mytime=timetime()
+      ids=self._prepIds(ids)
       if props is None:
          badLinkChain=[]
          try:
@@ -570,6 +571,7 @@ class DBBase(object):
       return res
 
    def getBacklinks(self, ids, props=None, strictMode=True, safeMode=True):
+      ids=self._prepIds(ids)
       if props is None:
          badLinkChain=[]
          try:
@@ -592,6 +594,7 @@ class DBBase(object):
 
    def iterBacklinks(self, ids, props=None, recursive=False, treeMode=True, safeMode=True, calcProperties=True, strictMode=True, allowContextSwitch=True):
       mytime=timetime()
+      ids=self._prepIds(ids)
       if props is None:
          badLinkChain=[]
          try:
@@ -651,6 +654,7 @@ class DBBase(object):
    def countBranch(self, ids=None, strictMode=False, offsetLast=False, recursive=False, allowContextSwitch=False, skipLinkChecking=False):
       mytime=timetime()
       if ids is not None:
+         ids=self._prepIds(ids)
          # searching enter-point and calc props if needed
          badLinkChain=[]
          try:
@@ -700,6 +704,7 @@ class DBBase(object):
 
    def getBranch(self, ids=None, strictMode=True, safeMode=True, recursive=True, offsetLast=False):
       if ids is not None:
+         ids=self._prepIds(ids)
          # searching enter-point and calc props if needed
          badLinkChain=[]
          try:
@@ -732,6 +737,7 @@ class DBBase(object):
       propRules=self.__propCompiled
       propMerger=propRules['mergerInherit'] if calcProperties and propRules['inheritCBMap'] else False
       if ids is not None:
+         ids=self._prepIds(ids)
          # searching enter-point and calc props if needed
          badLinkChain=[]
          try:
@@ -912,22 +918,62 @@ class DBBase(object):
    def remove(self, ids, existChecked=None, strictMode=False):
       return self.set(ids, None, existChecked=existChecked, onlyIfExist=True, strictMode=strictMode)
 
-   def move(self, idsFrom, idsTo, onlyIfExist=None, strictMode=True, fixLinks=True):
-      #! это заглушка - подробности в *issue#50*
-      data=self.get(idsFrom, returnRaw=True, strictMode=strictMode)
-      if data is None:
-         if strictMode:
-            #? насамом деле эта ветка ненужна - строгий режим выкинет исключение внутри `get()`
-            raise NotExistError(idsFrom)
-         return None
-      r=self.set(idsTo, data, allowMerge=False, onlyIfExist=onlyIfExist, strictMode=strictMode)
-      if not r:
-         if strictMode:
-            #? насамом деле эта ветка ненужна - строгий режим выкинет исключение внутри `get()`
-            raise NotExistError(idsFrom)
-         return None
-      r=self.remove(idsFrom, strictMode=strictMode)
-      return r
+   def move(self, idsFrom, idsTo, onlyIfExist=None, strictMode=True, fixLinks=True, recursive=True):
+      stopwatch=self.stopwatch('move@DBBase')
+      idsFrom=self._prepIds(idsFrom)
+      idsTo=self._prepIds(idsTo)
+      idsFromMain=idsFrom
+      #! не реализована работа с props - подробности в *issue#50*
+      #? можно ли переписать этот метод с использованием `iterBranch` вместо ручного управления обходом веток
+      tQueue=deque((((idsFrom, NULL, NULL), idsTo),))
+      while tQueue:
+         (idsFrom, props, branch), idsTo=tQueue.pop()
+         if self.isExist(idsTo):
+            #! onlyIfExist
+            stopwatch()
+            raise AlreadyExistError(idsTo)
+         if props is NULL:
+            try:
+               badLinkChain=[]
+               isExist, props, branch=self._findInIndex(idsFrom, strictMode=True, calcProperties=True, linkChain=badLinkChain)
+            except BadLinkError:
+               # удаляем плохой линк
+               for _ids, _props in reversed(badLinkChain):
+                  self.set(_ids, None, existChecked=_props, allowForceRemoveChilds=True)
+               stopwatch()
+               if strictMode: raise NotExistError(idsFrom)
+               else: return None
+            except ParentNotExistError:
+               isExist=False
+            if not isExist:
+               if strictMode:
+                  stopwatch()
+                  raise NotExistError(idsFrom)
+               else:
+                  stopwatch()
+                  return None
+         else:
+            isExist=True
+         # get old data
+         data=self.get(idsFrom, existChecked=props, returnRaw=True, strictMode=strictMode)
+         # moving obj
+         r=self.set(idsTo, data, allowMerge=False, onlyIfExist=onlyIfExist, strictMode=strictMode)
+         assert r is not None
+         # fixing links
+         if fixLinks and 'backlink' in props:
+            for idsLinked in props['backlink']:
+               self.link(idsLinked, idsTo, onlyIfExist=True, strictMode=strictMode)
+         # moving childs
+         if recursive and branch:
+            for _id in branch:
+               _props, _branch=branch[_id]
+               _idsFrom=idsFrom+(_id,)
+               _idsTo=idsTo+(_id,)
+               tQueue.appendleft(((_idsFrom, _props, _branch), _idsTo))
+      r=self.remove(idsFromMain, strictMode=strictMode)
+      assert r is not None
+      stopwatch()
+      return idsTo
 
    def _validateOnSet(self, ids, data, isExist=None, allowMerge=None, **kwargs):
       # хук, позволяющий проверить или модифицировать данные (и Props) перед их добавлением
