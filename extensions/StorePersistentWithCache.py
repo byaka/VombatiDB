@@ -165,6 +165,7 @@ class DBStorePersistentWithCache(DBBase):
                      if line=='-':
                         self._unmarkInIndex(ids, **props)
                         notCreatedQueue[ids]=0
+                        isExist=False
                      else:
                         isExist=self._markInIndex(ids, strictMode=True, skipBacklinking=True, **props)
                   except ParentNotExistError:
