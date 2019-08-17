@@ -285,26 +285,83 @@ def showDB(db, branch=None, limit=None):
 
 def dumpDB(db, branch=None):
    #! нужно добавить сравнение `meta` и `props`
-   tArr={'data':{}}
+   tArr={'branch':{}}
+   if branch:
+      tArr['branch'][db._prepIds(branch)]={}
    for ids, (props, branchLen) in db.iterBranch(branch, treeMode=True, safeMode=False, calcProperties=False, skipLinkChecking=False):
-      data=db.get(ids, existChecked=props, returnRaw=True)
-      tArr['data'][ids]=(branchLen, data)
+      data=db.isLink(ids) or db.get(ids, existChecked=props, returnRaw=True)
+      tArr['branch'][ids]=data
    return tArr
 
-def diffDB(db, dumped, branch=None):
+def dumpTree(db, tree, version=1, **kwargs):
+   tObjs, tLinks=loadTree(db, tree, onlyPrep=True, version=version)
+   tArr={'branch':{}}
+   for ids, data in tObjs+tLinks:
+      tArr['branch'][ids]=data
+   return tArr
+
+def diffDB(db, dumped, branch=None, checkMeta=True, checkProps=True):
    #! нужно добавить сравнение `meta` и `props`
    idsExisted=set()
+   if branch:
+      idsExisted.add(db._prepIds(branch))
    for ids, (props, branchLen) in db.iterBranch(branch, treeMode=True, safeMode=False, calcProperties=True, skipLinkChecking=False):
-      if ids not in dumped['data']:
+      if ids not in dumped['branch']:
          yield ('BRANCH_UNEXPECTED', ids, None)
-      elif dumped['data'][ids][0]!=branchLen:
-         yield ('BRANCH_SIZE', ids, (dumped['data'][ids][0], branchLen))
       else:
-         data=db.get(ids, existChecked=props, returnRaw=True)
-         if dumped['data'][ids][1]!=data:
-            yield ('BRANCH_DATA', ids, (dumped['data'][ids][1], data))
+         data=db.isLink(ids) or db.get(ids, existChecked=props, returnRaw=True)
+         if dumped['branch'][ids]!=data:
+            yield ('BRANCH_DATA_MISMATCH', ids, (dumped['branch'][ids], data))
          else:
             idsExisted.add(ids)
    #
-   for ids in set(dumped)-idsExisted:
+   for ids in set(dumped['branch'])-idsExisted:
       yield ('BRANCH_MISSED', ids, None)
+
+# def toTree(db):
+#    res={}
+#    for ids, (props, branchLen) in db.iterBranch(branch, treeMode=True, safeMode=False, calcProperties=False, skipLinkChecking=False):
+#       data=db.get(ids, existChecked=props, returnRaw=True)
+
+def loadTree(db, tree, onlyPrep=False, version=1, **kwargs):
+   #! добавить возможность загружать дерево в конкретную ветку
+   if version==1:
+      return loadTree_v1(db, tree, onlyPrep=onlyPrep, **kwargs)
+   else:
+      raise ValueError("Unknown method's version: %s"%(version,))
+
+def loadTree_v1(db, tree, onlyPrep=False):
+   tObjs=[]
+   tLinks=[]
+   tQueue=deque(((None, tree),))
+   while tQueue:
+      parent, tree=tQueue.pop()
+      parent=parent or ()
+      for action, sub in tree.iteritems():
+         if not action: continue
+         elif isinstance(action, (str, unicode)):
+            ids, data=action, None
+         elif isinstance(action, tuple):
+            if len(action)==2:
+               ids, data=action
+            else:
+               raise ValueError('Incorrect length for action: %r'%(action,))
+         else:
+            raise ValueError('Incorrect action: %r'%(action,))
+         if not isinstance(ids, (str, unicode)):
+            raise ValueError('Incorrect ids for action: %r'%(action,))
+         ids=parent+(ids,)
+         data={} if data is None else data
+         to=tLinks if isinstance(data, tuple) else tObjs
+         to.append((ids, data))
+         #
+         if sub and isinstance(sub, dict): tQueue.append((ids, sub))
+   tObjs.sort(key=len)
+   tLinks.sort(key=len)
+   if onlyPrep:
+      return tObjs, tLinks
+   #
+   for ids, data in tObjs:
+      db.set(ids, data, strictMode=True, onlyIfExist=False)
+   for idsFrom, idsTo in tLinks:
+      db.link(idsFrom, idsTo, strictMode=True, onlyIfExist=False)
