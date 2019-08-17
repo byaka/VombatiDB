@@ -59,5 +59,8 @@ class ExistStatusMismatchError(BaseDBErrorPrefixed, StrictModeError):
 class NotExistError(BaseDBErrorPrefixed, StrictModeError):
    """Object not exists"""
 
+class AlreadyExistError(BaseDBErrorPrefixed, StrictModeError):
+   """Object already exists"""
+
 class ExtensionDependencyError(BaseDBErrorPrefixed):
    """Unmet dependencies for extension"""
