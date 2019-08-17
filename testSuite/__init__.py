@@ -4,7 +4,7 @@ import sys, os
 p=os.path.normpath(os.path.realpath(__file__)).split(os.path.sep)
 sys.path.insert(0, os.path.sep.join(p[:-3]))
 m=__import__(p[-3])
-for k in ('VombatiDB', 'showDB', 'showStats', 'Workspace', 'WorkspaceOld', 'errors', 'COLORS', 'IN_TERM', 'DBTestBase', 'DBTestPriority', 'runDBTest', 'DBTESTDEF_extensions', 'DBTESTDEF_settings'):
+for k in ('VombatiDB', 'Workspace', 'WorkspaceOld', 'showDB', 'showStats', 'loadTree', 'dumpTree', 'dumpDB', 'diffDB', 'errors', 'COLORS', 'IN_TERM', 'DBTestBase', 'DBTestPriority', 'runDBTest', 'DBTESTDEF_extensions', 'DBTESTDEF_settings'):
    globals()[k]=getattr(m, k)
 
 sys.path.append('/var/python/libs/')
@@ -14,7 +14,7 @@ sys.path.append('/home/python/')
 
 from functionsex import *
 
-class ScreendeskTestDB:
+class ScreendeskTestDB(object):
    def __init__(self, workspace):
       self.workspace=workspace
       path=getScriptPath(real=True, f=__file__)+'/tmp/db1'
@@ -165,6 +165,102 @@ class ScreendeskTestDB:
       timeitMe(bind(self.db.query, {'q':self.db.queryCompile(self.db.queryPrep(None, None, 'NS=="project" and tFunc1()'), env=tEnv), 'env':tEnv}), n=100, m=10)
       print
 
+   def searchTest(self):
+      print '-'*25, 'Searching test', '-'*25
+      tEnv={'tFunc1':lambda: True}
+      q=self.db.queryPrep('NS, IDS, DATA.items()', None, 'NS=="project" and not DB.isLink(PROPS) and tFunc1()')
+      q=self.db.queryCompile(q, env=tEnv)
+      print 'Dump of compiled query:', q.dump()
+      res=self.db.query(q=q, env=tEnv)
+      print 'Search results:'
+      if not res:
+         print 'No data finded'
+      else:
+         tArr=tuple(res)
+         print 'Finded %i objects:'%len(tArr)
+         if len(tArr)<15:
+            for o in tArr: print o
+         else:
+            for o in tArr[:5]: print o
+            print '-- more %i items --'%(len(tArr)-10)
+            for o in tArr[-5:]: print o
+
+   def loadTree(self, tree):
+      loadTree(self.db, tree)
+
+   def dump(self, branch=None, tree=NULL):
+      if tree is not NULL:
+         return dumpTree(self.db, tree)
+      else:
+         return dumpDB(self.db, branch=branch)
+
+   def diff(self, dmpWith, branch=None):
+      if self.dump(branch=branch)==dmpWith: return False
+      print 'DUMPS MISMATCH!'
+      for msg, ids, data in diffDB(self.db, dmpWith, branch=branch, checkMeta=False, checkProps=False):
+         print '   %s for %s: %r'%(msg, ids, data)
+      return True
+
+   def moveDataTest(self):
+      print '-'*25, 'Move data test', '-'*25
+      TEST_ROOT='TEST_moveData'
+      try:
+         treeBefore={TEST_ROOT:{
+            ('mv_root1', None):{
+               ('mv_target2old', None):{
+                  ('mv_target2node1', None):None,
+                  ('mv_target2node2', None):{
+                     ('mv_target2node3', None):None
+                  },
+               },
+               ('mv_target1old', None):None,
+               ('mv_link1', (TEST_ROOT, 'mv_root1', 'mv_target1old')):{
+                  ('mv_link2', (TEST_ROOT, 'mv_root1', 'mv_target1old')):None,
+               },
+               ('mv_link4', (TEST_ROOT, 'mv_root1', 'mv_target2old')):None,
+               ('mv_link5', (TEST_ROOT, 'mv_root1', 'mv_target2old', 'mv_target2node1')):None,
+               ('mv_link6', (TEST_ROOT, 'mv_root1', 'mv_target2old', 'mv_target2node2')):None,
+            },
+            ('mv_root2', None):{
+               ('mv_link3', (TEST_ROOT, 'mv_root1', 'mv_target1old')):None,
+               ('mv_link7', (TEST_ROOT, 'mv_root1', 'mv_target2old', 'mv_target2node2', 'mv_target2node3')):None,
+            },
+            ('mv_root3', None):None,
+         }}
+         self.loadTree(treeBefore)
+         assert not self.diff(self.dump(tree=treeBefore), branch=TEST_ROOT)
+         #
+         self.db.move((TEST_ROOT, 'mv_root1', 'mv_target1old'), (TEST_ROOT, 'mv_root3', 'mv_target1new'))
+         self.db.move((TEST_ROOT, 'mv_root1', 'mv_target2old'), (TEST_ROOT, 'mv_root3', 'mv_target2new'))
+         #
+         treeAfter={TEST_ROOT:{
+            ('mv_root1', None):{
+               ('mv_link1', (TEST_ROOT, 'mv_root3', 'mv_target1new')):{
+                  ('mv_link2', (TEST_ROOT, 'mv_root3', 'mv_target1new')):None,
+               },
+               ('mv_link4', (TEST_ROOT, 'mv_root3', 'mv_target2new')):None,
+               ('mv_link5', (TEST_ROOT, 'mv_root3', 'mv_target2new', 'mv_target2node1')):None,
+               ('mv_link6', (TEST_ROOT, 'mv_root3', 'mv_target2new', 'mv_target2node2')):None,
+            },
+            ('mv_root2', None):{
+               ('mv_link3', (TEST_ROOT, 'mv_root3', 'mv_target1new')):None,
+               ('mv_link7', (TEST_ROOT, 'mv_root3', 'mv_target2new', 'mv_target2node2', 'mv_target2node3')):None,
+            },
+            ('mv_root3', None):{
+               ('mv_target1new', None):None,
+               ('mv_target2new', None):{
+                  ('mv_target2node1', None):None,
+                  ('mv_target2node2', None):{
+                     ('mv_target2node3', None):None
+                  },
+               },
+            },
+         }}
+         assert not self.diff(self.dump(tree=treeAfter), branch=TEST_ROOT)
+      finally:
+         self.db.remove(TEST_ROOT)
+      print 'OK!'
+
    def test(self):
       # self.modifyProp(None, {'branchModified':False})
       self.show()
@@ -188,24 +284,10 @@ class ScreendeskTestDB:
       # showStats(self.db)
       # raw_input()
 
-      print '-'*25, 'Searching test', '-'*25
-      tEnv={'tFunc1':lambda: True}
-      q=self.db.queryPrep('NS, IDS, DATA.items()', None, 'NS=="project" and not DB.isLink(PROPS) and tFunc1()')
-      q=self.db.queryCompile(q, env=tEnv)
-      print 'Dump of compiled query:', q.dump()
-      res=self.db.query(q=q, env=tEnv)
-      print 'Search results:'
-      if not res:
-         print 'No data finded'
-      else:
-         tArr=tuple(res)
-         print 'Finded %i objects:'%len(tArr)
-         if len(tArr)<15:
-            for o in tArr: print o
-         else:
-            for o in tArr[:5]: print o
-            print '-- more %i items --'%(len(tArr)-10)
-            for o in tArr[-5:]: print o
+      if self.workspace.raw_input('Run search-test? ')=='y':
+         self.searchTest()
+      if self.workspace.raw_input('Run move-test? ')=='y':
+         self.moveDataTest()
 
       #! нужен тест - итерация ветки, которую сразу после создания итератора удалят. такая возможность нужна для очистки веток в фоновом режиме при удалении
       # self.db.set(('user1', '?operator'), {}, allowMerge=False)
@@ -222,7 +304,6 @@ class ScreendeskTestDB:
       # self.db.link(('tmp', 't1'), ('user1', 'operator4'))
       # self.db.remove(('user1', 'operator4'))
 
-      print '\nTEST_ENDED'
       if self.workspace.raw_input('Show data again? ')=='y': self.show()
       if console.inTerm() and self.workspace.raw_input('%(bgmagenta)s%(white)sRun interactive mode?%(end)s '%consoleColor)=='y':
          console.interact(scope=locals())
