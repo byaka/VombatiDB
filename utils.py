@@ -352,8 +352,10 @@ def loadTree_v1(db, tree, onlyPrep=False):
             raise ValueError('Incorrect ids for action: %r'%(action,))
          ids=parent+(ids,)
          data={} if data is None else data
-         to=tLinks if isinstance(data, tuple) else tObjs
-         to.append((ids, data))
+         if isinstance(data, tuple):
+            tLinks.append((ids, data))
+            data=True
+         tObjs.append((ids, data))
          #
          if sub and isinstance(sub, dict): tQueue.append((ids, sub))
    tObjs.sort(key=len)
@@ -364,4 +366,4 @@ def loadTree_v1(db, tree, onlyPrep=False):
    for ids, data in tObjs:
       db.set(ids, data, strictMode=True, onlyIfExist=False)
    for idsFrom, idsTo in tLinks:
-      db.link(idsFrom, idsTo, strictMode=True, onlyIfExist=False)
+      db.link(idsFrom, idsTo, strictMode=True, onlyIfExist=True)
