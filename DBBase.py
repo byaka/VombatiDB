@@ -954,11 +954,18 @@ class DBBase(object):
                   return None
          else:
             isExist=True
-         # get old data
-         data=self.get(idsFrom, existChecked=props, returnRaw=True, strictMode=strictMode)
-         # moving obj
-         r=self.set(idsTo, data, allowMerge=False, onlyIfExist=onlyIfExist, strictMode=strictMode)
-         assert r is not None
+         # for link we dont need data
+         if self.isLink(props, calcProperties=False):
+            #! onlyIfExist
+            r=self.link(idsTo, props['link'], onlyIfExist=False, strictMode=strictMode)
+            assert r is not None
+         else:
+            # get old data
+            data=self.get(idsFrom, existChecked=props, returnRaw=True, strictMode=strictMode)
+            # moving obj
+            #! onlyIfExist
+            r=self.set(idsTo, data, allowMerge=False, onlyIfExist=False, strictMode=strictMode)
+            assert r is not None
          # fixing links
          if fixLinks and 'backlink' in props:
             for idsLinked in props['backlink']:
