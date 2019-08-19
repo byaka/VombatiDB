@@ -205,15 +205,20 @@ class ScreendeskTestDB(object):
       print '-'*25, 'Move data test', '-'*25
       TEST_ROOT='TEST_moveData'
       try:
+         self.db.remove(TEST_ROOT)
          treeBefore={TEST_ROOT:{
             ('mv_root1', None):{
+               ('mv_target1old', None):None,
                ('mv_target2old', None):{
                   ('mv_target2node1', None):None,
                   ('mv_target2node2', None):{
                      ('mv_target2node3', None):None
                   },
                },
-               ('mv_target1old', None):None,
+               ('mv_target3old', (TEST_ROOT, 'mv_root1', 'mv_target4')):{
+                  ('mv_target3node1', None):None
+               },
+               ('mv_target4', None):None,
                ('mv_link1', (TEST_ROOT, 'mv_root1', 'mv_target1old')):{
                   ('mv_link2', (TEST_ROOT, 'mv_root1', 'mv_target1old')):None,
                },
@@ -232,9 +237,11 @@ class ScreendeskTestDB(object):
          #
          self.db.move((TEST_ROOT, 'mv_root1', 'mv_target1old'), (TEST_ROOT, 'mv_root3', 'mv_target1new'))
          self.db.move((TEST_ROOT, 'mv_root1', 'mv_target2old'), (TEST_ROOT, 'mv_root3', 'mv_target2new'))
+         self.db.move((TEST_ROOT, 'mv_root1', 'mv_target3old'), (TEST_ROOT, 'mv_root3', 'mv_target3new'))
          #
          treeAfter={TEST_ROOT:{
             ('mv_root1', None):{
+               ('mv_target4', None):None,
                ('mv_link1', (TEST_ROOT, 'mv_root3', 'mv_target1new')):{
                   ('mv_link2', (TEST_ROOT, 'mv_root3', 'mv_target1new')):None,
                },
@@ -254,9 +261,15 @@ class ScreendeskTestDB(object):
                      ('mv_target2node3', None):None
                   },
                },
+               ('mv_target3new', (TEST_ROOT, 'mv_root1', 'mv_target4')):{
+                  ('mv_target3node1', None):None
+               },
             },
          }}
          assert not self.diff(self.dump(tree=treeAfter), branch=TEST_ROOT)
+      except Exception:
+         self.show()
+         raise sys.exc_info()
       finally:
          self.db.remove(TEST_ROOT)
       print 'OK!'
