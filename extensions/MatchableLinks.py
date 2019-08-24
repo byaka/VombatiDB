@@ -26,6 +26,7 @@ __version__ = "%d.%d.%d" % (__ver_major__, __ver_minor__, __ver_patch__)
 
 from ..utils import *
 from ..DBBase import DBBase
+from ..errors import NotExistError
 
 def __init():
    return DBMatchableLinks, ('MatchableLinks',)
@@ -115,8 +116,9 @@ class DBMatchableLinks(DBBase):
          _parent=ids[:-1]
          if (doLinkedChilds is None and self.__isEnabled(_parent)) or doLinkedChilds:
             #? для `_findInIndex()` есть механизм parentsChain, который позволяет получить всю цепочку, а не только искомый обьект. полезно иметь тоже самое для `_markInIndex()` и особенно для хука `_linkModified()`
-            _props=self._findInIndex(_parent, strictMode=True, calcProperties=False, skipLinkChecking=True)[1]
-            if 'linkedChilds' not in _props:
+            isExist, _props, _=self._findInIndex(_parent, strictMode=False, calcProperties=False, skipLinkChecking=True)
+            if not isExist: pass
+            elif 'linkedChilds' not in _props:
                if _status=='CREATED' or _status=='EDITED':
                   self._markInIndex(_parent, linkedChilds=set((props['link'],)))
             else:
