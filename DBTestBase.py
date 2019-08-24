@@ -33,7 +33,7 @@ DBTESTDEF_settings={
    'dataMerge_deep':False,
    'ns_checkIndexOnConnect':True,
    'linkedChilds_default_do':False,
-   'linkedChilds_inheritNSFlags':False,
+   'linkedChilds_inheritNSFlags':True,
 }
 
 #! в некоторых тестах важно менять настройки базы. поскольку без перезапуска базы это сделать нельзя, нужен просто механизм перезапуска, вызываемый прямо из теста
