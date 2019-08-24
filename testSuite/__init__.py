@@ -37,15 +37,12 @@ class ScreendeskTestDB(object):
       for ids, (props, l) in self.db.iterBranch(ids, calcProperties=False):
          props.update(data)
 
-   def show(self):
-      showDB(self.db)
+   def show(self, branch=None):
+      showDB(self.db, branch=branch)
 
    def _clearDB(self):
       self.db.truncate()
       self.configNS()
-      # for ids, (props, l) in self.db.iterBranch(recursive=False, safeMode=True, calcProperties=False):
-      #    print '-', ids
-      #    self.db.remove(ids, existChecked=props)
 
    def _makeLongLink(self, l=10, root=None, ns='_tmpLink'):
       if root is None:
@@ -205,73 +202,101 @@ class ScreendeskTestDB(object):
       print '-'*25, 'Move data test', '-'*25
       TEST_ROOT='TEST_moveData'
       try:
+         self.db.setNS(TEST_ROOT, None, None, onlyIndexed=False, linkChilds=True, allowCheckIndex=True)
+         self.db.setNS('mv_root', None, None, onlyIndexed=False, linkChilds=True, allowCheckIndex=True)
+         self.db.setNS('mv_target', None, None, onlyIndexed=False, linkChilds=True, allowCheckIndex=True)
+         self.db.setNS('mv_link', None, None, onlyIndexed=False, linkChilds=True, allowCheckIndex=True)
          self.db.remove(TEST_ROOT)
          treeBefore={TEST_ROOT:{
-            ('mv_root1', None):{
-               ('mv_target1old', None):None,
-               ('mv_target2old', None):{
-                  ('mv_target2node1', None):None,
-                  ('mv_target2node2', None):{
-                     ('mv_target2node3', None):None
+            ('mv_root#1', None):{
+               ('mv_target#1old', None):None,
+               ('mv_target#2old', None):{
+                  ('mv_target#2node1', None):None,
+                  ('mv_target#2node2', None):{
+                     ('mv_target#2node3', None):None
                   },
                },
-               ('mv_target3old', (TEST_ROOT, 'mv_root1', 'mv_target4')):{
-                  ('mv_target3node1', None):None
+               ('mv_target#3old', (TEST_ROOT, 'mv_root#1', 'mv_target#4')):{
+                  ('mv_target#3node1', None):{
+                     ('mv_target#3node2', (TEST_ROOT, 'mv_root#1', 'mv_target#4')):{
+                        ('mv_target#3node3', (TEST_ROOT, 'mv_root#1', 'mv_target#4')):None
+                     }
+                  }
                },
-               ('mv_target4', None):None,
-               ('mv_link1', (TEST_ROOT, 'mv_root1', 'mv_target1old')):{
-                  ('mv_link2', (TEST_ROOT, 'mv_root1', 'mv_target1old')):None,
+               ('mv_target#4', None):None,
+               ('mv_link#1', (TEST_ROOT, 'mv_root#1', 'mv_target#1old')):{
+                  ('mv_link#2', (TEST_ROOT, 'mv_root#1', 'mv_target#1old')):None,
                },
-               ('mv_link4', (TEST_ROOT, 'mv_root1', 'mv_target2old')):None,
-               ('mv_link5', (TEST_ROOT, 'mv_root1', 'mv_target2old', 'mv_target2node1')):None,
-               ('mv_link6', (TEST_ROOT, 'mv_root1', 'mv_target2old', 'mv_target2node2')):None,
+               ('mv_link#4', (TEST_ROOT, 'mv_root#1', 'mv_target#2old')):None,
+               ('mv_link#5', (TEST_ROOT, 'mv_root#1', 'mv_target#2old', 'mv_target#2node1')):None,
+               ('mv_link#6', (TEST_ROOT, 'mv_root#1', 'mv_target#2old', 'mv_target#2node2')):None,
+               ('mv_target#5old', None):{
+                  ('mv_target#6old', (TEST_ROOT, 'mv_root#1', 'mv_target#4')):{
+                     ('mv_target#7old', None):None,
+                  },
+               },
             },
-            ('mv_root2', None):{
-               ('mv_link3', (TEST_ROOT, 'mv_root1', 'mv_target1old')):None,
-               ('mv_link7', (TEST_ROOT, 'mv_root1', 'mv_target2old', 'mv_target2node2', 'mv_target2node3')):None,
+            ('mv_root#2', None):{
+               ('mv_link#3', (TEST_ROOT, 'mv_root#1', 'mv_target#1old')):None,
+               ('mv_link#7', (TEST_ROOT, 'mv_root#1', 'mv_target#2old', 'mv_target#2node2', 'mv_target#2node3')):None,
             },
-            ('mv_root3', None):None,
+            ('mv_root#3', None):None,
          }}
          self.loadTree(treeBefore)
          assert not self.diff(self.dump(tree=treeBefore), branch=TEST_ROOT)
          #
-         self.db.move((TEST_ROOT, 'mv_root1', 'mv_target1old'), (TEST_ROOT, 'mv_root3', 'mv_target1new'))
-         self.db.move((TEST_ROOT, 'mv_root1', 'mv_target2old'), (TEST_ROOT, 'mv_root3', 'mv_target2new'))
-         self.db.move((TEST_ROOT, 'mv_root1', 'mv_target3old'), (TEST_ROOT, 'mv_root3', 'mv_target3new'))
+         self.db.move((TEST_ROOT, 'mv_root#1', 'mv_target#1old'), (TEST_ROOT, 'mv_root#3', 'mv_target#1new'), strictMode=False)
+         self.db.move((TEST_ROOT, 'mv_root#1', 'mv_target#2old'), (TEST_ROOT, 'mv_root#3', 'mv_target#2new'), strictMode=False)
+         self.db.move((TEST_ROOT, 'mv_root#1', 'mv_target#3old'), (TEST_ROOT, 'mv_root#3', 'mv_target#3new'), strictMode=False)
+         self.db.move((TEST_ROOT, 'mv_root#1', 'mv_target#5old'), (TEST_ROOT, 'mv_root#3', 'mv_target#5new'), strictMode=False)
          #
          treeAfter={TEST_ROOT:{
-            ('mv_root1', None):{
-               ('mv_target4', None):None,
-               ('mv_link1', (TEST_ROOT, 'mv_root3', 'mv_target1new')):{
-                  ('mv_link2', (TEST_ROOT, 'mv_root3', 'mv_target1new')):None,
+            ('mv_root#1', None):{
+               ('mv_target#4', None):None,
+               ('mv_link#1', (TEST_ROOT, 'mv_root#3', 'mv_target#1new')):{
+                  ('mv_link#2', (TEST_ROOT, 'mv_root#3', 'mv_target#1new')):None,
                },
-               ('mv_link4', (TEST_ROOT, 'mv_root3', 'mv_target2new')):None,
-               ('mv_link5', (TEST_ROOT, 'mv_root3', 'mv_target2new', 'mv_target2node1')):None,
-               ('mv_link6', (TEST_ROOT, 'mv_root3', 'mv_target2new', 'mv_target2node2')):None,
+               ('mv_link#4', (TEST_ROOT, 'mv_root#3', 'mv_target#2new')):None,
+               ('mv_link#5', (TEST_ROOT, 'mv_root#3', 'mv_target#2new', 'mv_target#2node1')):None,
+               ('mv_link#6', (TEST_ROOT, 'mv_root#3', 'mv_target#2new', 'mv_target#2node2')):None,
             },
-            ('mv_root2', None):{
-               ('mv_link3', (TEST_ROOT, 'mv_root3', 'mv_target1new')):None,
-               ('mv_link7', (TEST_ROOT, 'mv_root3', 'mv_target2new', 'mv_target2node2', 'mv_target2node3')):None,
+            ('mv_root#2', None):{
+               ('mv_link#3', (TEST_ROOT, 'mv_root#3', 'mv_target#1new')):None,
+               ('mv_link#7', (TEST_ROOT, 'mv_root#3', 'mv_target#2new', 'mv_target#2node2', 'mv_target#2node3')):None,
             },
-            ('mv_root3', None):{
-               ('mv_target1new', None):None,
-               ('mv_target2new', None):{
-                  ('mv_target2node1', None):None,
-                  ('mv_target2node2', None):{
-                     ('mv_target2node3', None):None
+            ('mv_root#3', None):{
+               ('mv_target#1new', None):None,
+               ('mv_target#2new', None):{
+                  ('mv_target#2node1', None):None,
+                  ('mv_target#2node2', None):{
+                     ('mv_target#2node3', None):None
                   },
                },
-               ('mv_target3new', (TEST_ROOT, 'mv_root1', 'mv_target4')):{
-                  ('mv_target3node1', None):None
+               ('mv_target#3new', (TEST_ROOT, 'mv_root#1', 'mv_target#4')):{
+                  ('mv_target#3node1', None):{
+                     ('mv_target#3node2', (TEST_ROOT, 'mv_root#1', 'mv_target#4')):{
+                        ('mv_target#3node3', (TEST_ROOT, 'mv_root#1', 'mv_target#4')):None
+                     }
+                  }
+               },
+               ('mv_target#5new', None):{
+                  ('mv_target#6old', (TEST_ROOT, 'mv_root#1', 'mv_target#4')):{
+                     ('mv_target#7old', None):None,
+                  },
                },
             },
          }}
          assert not self.diff(self.dump(tree=treeAfter), branch=TEST_ROOT)
+         self.show(TEST_ROOT)
       except Exception:
-         self.show()
-         raise sys.exc_info()
+         self.show(TEST_ROOT)
+         raise
       finally:
          self.db.remove(TEST_ROOT)
+         self.db.delNS(TEST_ROOT, strictMode=True, allowCheckIndex=True)
+         self.db.delNS('mv_root', strictMode=True, allowCheckIndex=True)
+         self.db.delNS('mv_target', strictMode=True, allowCheckIndex=True)
+         self.db.delNS('mv_link', strictMode=True, allowCheckIndex=True)
       print 'OK!'
 
    def test(self):
