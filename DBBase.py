@@ -923,8 +923,8 @@ class DBBase(object):
       idsFrom=self._prepIds(idsFrom)
       idsTo=self._prepIds(idsTo)
       idsFromMain=idsFrom
+      #? в теории можно перевести весь этот код на `iterBranch`, тем самым стандартизировав его. однако в таком случае придется выполнять дополнительные манипуляции для конструирования нового `idsTo` для каждого ребенка, в то время как в текущем коде новый `idsTo` выводится сам последовательно.
       #! не реализована работа с props - подробности в *issue#50*
-      #? можно ли переписать этот метод с использованием `iterBranch` вместо ручного управления обходом веток
       tQueue=deque((((idsFrom, NULL, NULL), idsTo),))
       while tQueue:
          (idsFrom, props, branch), idsTo=tQueue.pop()
@@ -976,7 +976,7 @@ class DBBase(object):
                _props, _branch=branch[_id]
                _idsFrom=idsFrom+(_id,)
                _idsTo=idsTo+(_id,)
-               tQueue.appendleft(((_idsFrom, _props, _branch), _idsTo))
+               tQueue.append(((_idsFrom, _props, _branch), _idsTo))
       r=self.remove(idsFromMain, strictMode=strictMode)
       assert r is not None
       stopwatch()
