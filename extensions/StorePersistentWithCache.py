@@ -302,7 +302,9 @@ class DBStorePersistentWithCache(DBBase):
          return self.__c_OBJECT_REPLACED
 
    def _getData(self, ids, props, **kwargs):
-      return self.__cache.get(ids, False)
+      res=self.__cache.get(ids, False)
+      if isinstance(res, dict): res=res.copy()
+      return res
 
    def _close(self, *args, **kwargs):
       super(DBStorePersistentWithCache, self)._close(*args, **kwargs)
