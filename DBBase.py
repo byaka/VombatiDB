@@ -726,6 +726,7 @@ class DBBase(object):
       return branch.keys() if safeMode else branch
 
    def iterBranch(self, ids=None, strictMode=True, recursive=True, treeMode=True, safeMode=True, offsetLast=False, calcProperties=True, skipLinkChecking=False, allowContextSwitch=True, returnParent=False):
+      #! добавить возможность передавать сюда `props`
       mytime=timetime()
       _soLong=self._settings['iterBranch_soLong'] if allowContextSwitch else False
       _sleepTime=self._settings['iterBranch_sleepTime']
