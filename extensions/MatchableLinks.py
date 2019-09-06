@@ -55,7 +55,7 @@ class DBMatchableLinks(DBBase):
       self.__reparePropFromIndex()
 
    def __isEnabled(self, ids, doDefault=NULL):
-      #! нужно генерировать ответ при инициализации или хотябы кешировать
+      #! нужно генерировать ответ при инициализации или хотябы кешировать, смотри issue#105
       stopwatch=self.stopwatch('__isEnabled@DBMatchableLinks')
       if doDefault is NULL:
          doDefault=self._settings['linkedChilds_default_do']
