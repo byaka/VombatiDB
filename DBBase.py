@@ -85,7 +85,7 @@ class DBBase(object):
       }
       self._idBadPattern=set()
       # self._branchLock=defaultdict(self.workspace.rlock)
-      self.___indexNodeClass=dict()
+      self.___indexNodeClass=dict
       #
       kwargs2=self._init(*args, **kwargs)
       kwargs2=kwargs2 if isDict(kwargs2) else {}
