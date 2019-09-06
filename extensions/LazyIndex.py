@@ -31,50 +31,60 @@ def __init():
    return DBLazyIndex, ('LazyIndex',)
 
 class LazyChilds(DictInterface):
-   def __init__(self, mapping=(), cb=None, auto_lazy=False, **kwargs):
+   def __init__(self, mapping=(), is_node=True, cb=None, cb_data=None, auto_lazy=False, **kwargs):
+      #! это вызывает принудительное копирование `data`, возможно лучше сделать это опциональным например для вызовов из `__setitem__`
       self.__store=dict(mapping, **kwargs)
       self.__cb=None if not callable(cb) else cb
+      self.__cb_data=cb_data
       self.__auto_lazy=auto_lazy
+      self.__is_node=is_node
 
-   def __unlazy_props(self, k, v):
-      _props, _node=self[k]
+   def __copy__(self):
+      return self.__store.copy()
+
+   def __cb_props(self, v, _1, _2, k):
+      _props, _node=self.get(k, (None, None))
       if _props is v or (_props is None and not v): return
       props, node=v, _node
       self[k]=(props, node)
 
-   def __unlazy_node(self, k, v):
-      _props, _node=self[k]
+   def __cb_node(self, v, _1, _2, k):
+      _props, _node=self.get(k, (None, None))
       if _node is v or (_node is None and not v): return
       props, node=_props, v
       self[k]=(props, node)
 
    def __getitem__(self, k):
       props, node=self.__store[k]
-      auto_lazy=self.auto_lazy
+      auto_lazy=self.__auto_lazy
       if props is None:
-         props=LazyChilds(auto_lazy=auto_lazy, cb=self.__unlazy_props)
+         props=LazyChilds(is_node=False, auto_lazy=auto_lazy, cb=self.__cb_props, cb_data=k)
       if node is None:
-         node=LazyChilds(auto_lazy=auto_lazy, cb=self.__unlazy_node)
+         node=LazyChilds(is_node=True, auto_lazy=auto_lazy, cb=self.__cb_node, cb_data=k)
       return props, node
 
-   def __setitem__(self, k, (props, node)):
-      auto_lazy=self.auto_lazy
-      if props:
-         props=props if isinstance(props, LazyChilds) else LazyChilds(props, auto_lazy=auto_lazy, cb=auto_lazy and self.__unlazy_props)
-      else: props=None
-      if node:
-         node=node if isinstance(node, LazyChilds) else LazyChilds(node, auto_lazy=auto_lazy, cb=auto_lazy and self.__unlazy_node)
-      else: node=None
-      v=(props, node)
+   def __setitem__(self, k, v):
+      if self.__is_node:
+         props, node=v
+         auto_lazy=self.__auto_lazy
+         if props:
+            if not isinstance(props, LazyChilds):
+               props=LazyChilds(props, is_node=False, auto_lazy=auto_lazy, cb=auto_lazy and self.__cb_props, cb_data=k)
+         else: props=None
+         if node:
+            if not isinstance(node, LazyChilds):
+               node=LazyChilds(node, is_node=True, auto_lazy=auto_lazy, cb=auto_lazy and self.__cb_node, cb_data=k)
+         else: node=None
+         v=(props, node)
       self.__store[k]=v
       if self.__cb is not None:
-         self.__cb(k, v)
+         self.__cb(self, k, v, self.__cb_data)
          if not self.__auto_lazy: self.__cb=None
 
    def __delitem__(self, k):
       del self.__store[k]
       if self.__cb is not None:
-         self.__cb(k, None)
+         self.__cb(self, k, None, self.__cb_data)
          if not self.__auto_lazy: self.__cb=None
 
    def __contains__(self, k):
