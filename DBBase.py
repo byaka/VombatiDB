@@ -85,6 +85,7 @@ class DBBase(object):
       }
       self._idBadPattern=set()
       # self._branchLock=defaultdict(self.workspace.rlock)
+      self.___indexNodeClass=dict()
       #
       kwargs2=self._init(*args, **kwargs)
       kwargs2=kwargs2 if isDict(kwargs2) else {}
@@ -340,7 +341,7 @@ class DBBase(object):
       self._loadedMeta(self.__meta)
 
    def _initIndex(self):
-      self.__index={}
+      self.__index=self.___indexNodeClass()
       self._loadedIndex(self.__index)
 
    def _loadedMeta(self, data):
