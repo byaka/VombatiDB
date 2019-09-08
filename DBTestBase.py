@@ -22,7 +22,7 @@ def DBTestPriority(f, priority=None):
    setattr(wrapped, '__priority', priority)
    return wrapped
 
-DBTESTDEF_extensions=('NS', 'LazyIndex', 'Columns', 'MatchableLinks', 'StorePersistentWithCache', 'Search')
+DBTESTDEF_extensions=('NS', 'Columns', 'MatchableLinks', 'StorePersistentWithCache', 'Search')
 DBTESTDEF_settings={
    'store_flushOnChange':False,
    'store_flushAuto':False,
