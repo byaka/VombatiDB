@@ -31,8 +31,10 @@ def __init():
    return DBLazyIndex, ('LazyIndex',)
 
 class LazyChilds(DictInterface):
+   __slots__ = ('__store', '__cb', '__cb_data', '__auto_lazy', '__is_node')
    def __init__(self, mapping=(), is_node=True, cb=None, cb_data=None, auto_lazy=False, **kwargs):
-      #! это вызывает принудительное копирование `data`, возможно лучше сделать это опциональным например для вызовов из `__setitem__`
+      self.workspace.log(2, 'Extension `LazyIndex` not effective and deprecated!')
+      #? это вызывает принудительное копирование `data`, возможно лучше сделать это опциональным например для вызовов из `__setitem__`
       self.__store=dict(mapping, **kwargs)
       self.__cb=None if not callable(cb) else cb
       self.__cb_data=cb_data
@@ -46,22 +48,32 @@ class LazyChilds(DictInterface):
       _props, _node=self.get(k, (None, None))
       if _props is v or (_props is None and not v): return
       props, node=v, _node
-      self[k]=(props, node)
+      self.__store[k]=(props, node)
 
    def __cb_node(self, v, _1, _2, k):
       _props, _node=self.get(k, (None, None))
       if _node is v or (_node is None and not v): return
       props, node=_props, v
-      self[k]=(props, node)
+      self.__store[k]=(props, node)
+
+   def __iter__(self):
+      return iter(self.__store)
+
+   def __len__(self):
+      return len(self.__store)
 
    def __getitem__(self, k):
-      props, node=self.__store[k]
-      auto_lazy=self.__auto_lazy
-      if props is None:
-         props=LazyChilds(is_node=False, auto_lazy=auto_lazy, cb=self.__cb_props, cb_data=k)
-      if node is None:
-         node=LazyChilds(is_node=True, auto_lazy=auto_lazy, cb=self.__cb_node, cb_data=k)
-      return props, node
+      v=self.__store[k]
+      if self.__is_node:
+         auto_lazy=self.__auto_lazy
+         props, node=v
+         if props is None:
+            props=LazyChilds(is_node=False, auto_lazy=auto_lazy, cb=self.__cb_props, cb_data=k)
+         if node is None:
+            node=LazyChilds(is_node=True, auto_lazy=auto_lazy, cb=self.__cb_node, cb_data=k)
+         return props, node
+      else:
+         return v
 
    def __setitem__(self, k, v):
       if self.__is_node:
@@ -89,6 +101,9 @@ class LazyChilds(DictInterface):
 
    def __contains__(self, k):
       return k in self.__store
+
+   def __repr__(self):
+      return '{0}({1})'.format(type(self).__name__, repr(self.__store))
 
 class LazyChildsAuto(DictInterface):
    def __init__(self, mapping=(), cb=None, **kwargs):
