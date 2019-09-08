@@ -48,6 +48,8 @@ class DBStorePersistentWithCache(DBBase):
       # self.settings.store_flushAuto=False  #! implement
       self.settings.path=path
       self.settings.store_controlGC=True
+      self.settings.store_loadData_soLong=0.3  # this tries to switch context while exec `iterBranch(safeMode=True)`
+      self.settings.store_loadData_sleepTime=0.000001  # not null, becouse this allows to switch to another io-ready greenlet
       self.__store=MagicDict({
          'loaded':False,
          'writeCount':0,
@@ -72,7 +74,7 @@ class DBStorePersistentWithCache(DBBase):
 
    def _backupToStore(self, files, name=''):
       if not files: return None
-      mytime=getms(inMS=True)
+      mytime=timetime()
       name=name or '%s.zip'%datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
       self.workspace.log(4, 'Backuping fs-store (%s files): %s'%(len(files), name))
       path=os.path.join(self._settings['path'], 'backup')
@@ -80,14 +82,14 @@ class DBStorePersistentWithCache(DBBase):
       try: os.mkdir(path)
       except OSError: pass
       zipWrite(fbk, files, mode='w', forceCompression=False, silent=False)
-      self.workspace.log(3, 'Backuped fs-store (%s files) in %ims: %s'%(len(files), getms(inMS=True)-mytime, name))
+      self.workspace.log(3, 'Backuped fs-store (%s files) in %ims: %s'%(len(files), timetime()-mytime, name))
       return True
 
    def _connect(self, strictMode=True, needBackup=True, needRebuild=True, andMeta=True, **kwargs):
       self.workspace.log(4, 'Loading fs-store from "%s"'%(self._settings['path']))
       _gcWasEnabled=self._settings['store_controlGC'] and gc.isenabled()
       if _gcWasEnabled: gc.disable()
-      mytime=getms(inMS=True)
+      mytime=timetime()
       filesForRemove={}
       filesForBackup={}
       if andMeta:
@@ -97,12 +99,12 @@ class DBStorePersistentWithCache(DBBase):
       if needBackup:
          self._backupToStore(filesForBackup)
       if needRebuild and filesForRemove:
-         mytime2=getms(inMS=True)
+         mytime2=timetime()
          self.workspace.log(4, 'Rebuilding fs-store, removing old (%s files)'%len(filesForRemove))
          folderClear(self._settings['path'], alsoFiles=True, alsoDirs=False, silent=False, filter=filesForRemove, isBlacklist=False)
          self.snapshot(needBackup=False)
-         self.workspace.log(3, 'Rebuilded fs-store in %ims'%(getms(inMS=True)-mytime2))
-      self.workspace.log(3, 'Loading fs-store from "%s" in %ims'%(self._settings['path'], getms(inMS=True)-mytime))
+         self.workspace.log(3, 'Rebuilded fs-store in %ims'%(timetime()-mytime2))
+      self.workspace.log(3, 'Loading fs-store from "%s" in %ims'%(self._settings['path'], timetime()-mytime))
       super(DBStorePersistentWithCache, self)._connect(strictMode=strictMode, **kwargs)
       if _gcWasEnabled: gc.enable()
       self.__store.loaded=True
@@ -116,20 +118,24 @@ class DBStorePersistentWithCache(DBBase):
 
    def _loadMetaFromStore(self, toRemove, toBackup, strictMode=True):
       self.workspace.log(4, 'Loading Meta from fs-store')
-      mytime=getms(inMS=True)
+      mytime=timetime()
       fn, fp, fExist=self._checkFileFromStore('meta')
       if not fExist: return None
       with open(fp, 'r') as f:
          f=self.workspace.fileWrap(f)
          data=f.read()
       self._parseMeta(data)
-      self.workspace.log(3, 'Loaded Meta from fs-store in %ims'%(getms(inMS=True)-mytime))
+      self.workspace.log(3, 'Loaded Meta from fs-store in %ims'%(timetime()-mytime))
       toBackup[fn]=data
       return 1
 
-   def _loadDataFromStore(self, toRemove, toBackup, strictMode=True):
+   def _loadDataFromStore(self, toRemove, toBackup, strictMode=True, allowContextSwitch=True):
       self.workspace.log(4, 'Loading Data from fs-store')
-      mytime=getms(inMS=True)
+      mytime=_mytime=timetime()
+      _soLong=self._settings['store_loadData_soLong'] if allowContextSwitch else False
+      _sleepTime=self._settings['store_loadData_sleepTime']
+      _sleep=self.workspace.sleep
+      _timetime=timetime
       fn, fp, fExist=self._checkFileFromStore('data')
       if not fExist: return None
       self.__skip_saveChanges=True
@@ -141,6 +147,9 @@ class DBStorePersistentWithCache(DBBase):
             f.seek(0)
             ids, props, skip=None, None, 0
             for line in f:
+               if _soLong and _timetime()-_mytime>=_soLong:
+                  _sleep(_sleepTime)
+                  _mytime=_timetime()
                if skip:
                   skip-=1
                   continue
@@ -200,7 +209,7 @@ class DBStorePersistentWithCache(DBBase):
          if strictMode:
             raise ParentNotExistError('(unknown) for %s'%(_ids,))
          self.workspace.log(1, 'Branch %s skipped due some parents not exist'%(_ids,))
-      self.workspace.log(3, 'Loaded Data from fs-store in %ims'%(getms(inMS=True)-mytime))
+      self.workspace.log(3, 'Loaded Data from fs-store in %ims'%(timetime()-mytime))
       toBackup[fn]=(open, fp)
       toRemove[fn]=True
       self.__skip_saveChanges=False
@@ -316,7 +325,7 @@ class DBStorePersistentWithCache(DBBase):
       self.workspace.log(4, 'Making snapshot of DB to fs-store')
       _gcWasEnabled=self._settings['store_controlGC'] and gc.isenabled()
       if _gcWasEnabled: gc.disable()
-      mytime=getms(inMS=True)
+      mytime=timetime()
       try:
          if needBackup:
             filesForBackup=[]
@@ -327,7 +336,7 @@ class DBStorePersistentWithCache(DBBase):
             self._backupToStore(filesForBackup)
          self._saveMetaToStore(**kwargs)
          #
-         mytime2=getms(inMS=True)
+         mytime2=timetime()
          self.workspace.log(4, 'Saving Data to fs-store')
          propRules=self._getPropMap()[1]
          c=0
@@ -351,8 +360,8 @@ class DBStorePersistentWithCache(DBBase):
                except Exception:
                   if strictMode: raise
                   self.workspace.log(1, 'Error while saving %s: %s'%(ids, getErrorInfo()))
-         self.workspace.log(3, 'Saved Data to fs-store (%i items) in %ims'%(c, getms(inMS=True)-mytime2))
-         self.workspace.log(3, 'Maked snapshot of DB to fs-store in %ims'%(getms(inMS=True)-mytime))
+         self.workspace.log(3, 'Saved Data to fs-store (%i items) in %ims'%(c, timetime()-mytime2))
+         self.workspace.log(3, 'Maked snapshot of DB to fs-store in %ims'%(timetime()-mytime))
       finally:
          if _gcWasEnabled: gc.enable()
 
@@ -360,13 +369,13 @@ class DBStorePersistentWithCache(DBBase):
       self.workspace.log(4, 'Saving changes to fs-store')
       _gcWasEnabled=self._settings['store_controlGC'] and gc.isenabled()
       if _gcWasEnabled: gc.disable()
-      mytime=getms(inMS=True)
+      mytime=timetime()
       try:
          if andMeta:
             self._saveMetaToStore(**kwargs)
          if andData and self.__flushQueue:
             tArr=None
-            mytime2=getms(inMS=True)
+            mytime2=timetime()
             self.workspace.log(4, 'Saving Data to fs-store')
             propRules=self._getPropMap()[1]
             c=0
@@ -397,23 +406,23 @@ class DBStorePersistentWithCache(DBBase):
                   line=line.encode('utf-8')
                   f.write(line)
                   c+=1
-            self.workspace.log(3, 'Saved Data to fs-store (%i items) in %ims'%(c, getms(inMS=True)-mytime2))
+            self.workspace.log(3, 'Saved Data to fs-store (%i items) in %ims'%(c, timetime()-mytime2))
             self.__store['writeCount']+=1
             #! on error we need to dump changes (tArr and self.__flushQueue) somewhere
-         self.workspace.log(3, 'Saved changes to fs-store in %ims'%(getms(inMS=True)-mytime))
+         self.workspace.log(3, 'Saved changes to fs-store in %ims'%(timetime()-mytime))
       finally:
          if _gcWasEnabled: gc.enable()
 
    def _saveMetaToStore(self, **kwargs):
       self.workspace.log(4, 'Saving Meta to fs-store')
-      mytime=getms(inMS=True)
+      mytime=timetime()
       data=self._dumpMeta()
-      self.workspace.log(3, 'Dumped meta in %ims'%(getms(inMS=True)-mytime))
+      self.workspace.log(3, 'Dumped meta in %ims'%(timetime()-mytime))
       fp=self._checkFileFromStore('meta')[1]
       with self.__meta_lock, open(fp, 'w') as f:
          self.workspace.fileWrap(f)
          f.write(data)
-      self.workspace.log(3, 'Saved Meta to fs-store in %ims'%(getms(inMS=True)-mytime))
+      self.workspace.log(3, 'Saved Meta to fs-store in %ims'%(timetime()-mytime))
 
    def truncate(self, **kwargs):
       tArr=set()
