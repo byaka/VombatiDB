@@ -192,7 +192,7 @@ class DBStorePersistentWithCache(DBBase):
                      self._setData(tArr)
                      if 'link' in props:
                         ids2=props['link']
-                        isExist2, props2, _=self._findInIndex(ids2, strictMode=False, calcProperties=False, skipLinkChecking=True)
+                        isExist2, props2, _, _=self._findInIndex(ids2, strictMode=False, calcProperties=False, skipLinkChecking=True)
                         if isExist2:
                            if 'backlink' in props2:
                               props2['backlink'].add(ids)

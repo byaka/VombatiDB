@@ -99,7 +99,8 @@ class DBMatchableLinks(DBBase):
          if _parent!=_parentPrev:
             if _queue and _parentPrev and self.__isEnabled(_parentPrev):
                self._markInIndex(_parentPrev, strictMode=True, linkedChilds=_queue)
-            _queue=self._findInIndex(_parent, strictMode=True, calcProperties=False, skipLinkChecking=True)[1].get('linkedChilds', set())
+            tArr=self._findInIndex(_parent, strictMode=True, calcProperties=False, skipLinkChecking=True)[1]
+            _queue=tArr.get('linkedChilds', set())
             _parentPrev=_parent
          _link=props.get('link')
          if _link:
@@ -116,7 +117,7 @@ class DBMatchableLinks(DBBase):
          _parent=ids[:-1]
          if (doLinkedChilds is None and self.__isEnabled(_parent)) or doLinkedChilds:
             #? для `_findInIndex()` есть механизм parentsChain, который позволяет получить всю цепочку, а не только искомый обьект. полезно иметь тоже самое для `_markInIndex()` и особенно для хука `_linkModified()`
-            isExist, _props, _=self._findInIndex(_parent, strictMode=False, calcProperties=False, skipLinkChecking=True)
+            isExist, _props, _, _=self._findInIndex(_parent, strictMode=False, calcProperties=False, skipLinkChecking=True)
             if not isExist: pass
             elif 'linkedChilds' not in _props:
                if _status=='CREATED' or _status=='EDITED':
@@ -141,7 +142,7 @@ class DBMatchableLinks(DBBase):
       if props is None:
          badLinkChain=[]
          try:
-            isExist, props, _=self._findInIndex(ids, strictMode=True, calcProperties=True, linkChain=badLinkChain)
+            isExist, props, _, _=self._findInIndex(ids, strictMode=True, calcProperties=True, linkChain=badLinkChain)
          except BadLinkError:
             # удаляем плохой линк
             for _ids, _props in reversed(badLinkChain):
@@ -173,7 +174,7 @@ class DBMatchableLinks(DBBase):
          if isinstance(ids, set):
             linkedChilds=ids
          else:
-            isExist, props, _=self._findInIndex(ids, strictMode=strictMode, calcProperties=False, skipLinkChecking=skipLinkChecking)
+            isExist, props, _, _=self._findInIndex(ids, strictMode=strictMode, calcProperties=False, skipLinkChecking=skipLinkChecking)
             if not isExist:
                if skipNotExists: continue
                else: props={}

@@ -468,7 +468,7 @@ class DBNamespaced(DBBase):
          wasAutoGen=2
          numerable_nsiNow=True
          nsPrev, nsiPrev=self._parseId2NS(ids[-2]) if _idsLen>1 else (None, None)
-         _, propsParent, _=self._findInIndex(idsParent, strictMode=True, calcProperties=False)
+         _, propsParent, _, _=self._findInIndex(idsParent, strictMode=True, calcProperties=False)
          nsNow=lastId[:-1]
          nsoNow=nsMap.get(nsNow, None)
          nsiNow=self._generateIdNS_localAutoIncrement(nsNow, nsoNow, nsPrev, idsParent, propsParent)
@@ -476,7 +476,7 @@ class DBNamespaced(DBBase):
          stopwatch1()
       else:
          if existChecked is None:
-            isExist, props, _=self._findInIndex(ids, strictMode=True, calcProperties=True, skipLinkChecking=True)
+            isExist, props, _, _=self._findInIndex(ids, strictMode=True, calcProperties=True, skipLinkChecking=True)
          else:
             isExist, props=existChecked if isinstance(existChecked, tuple) else (True, existChecked)
       ids=tuple(ids)
@@ -529,7 +529,7 @@ class DBNamespaced(DBBase):
             stopwatch1=self.stopwatch('set_updateAutoIncrement.local@DBNamespaced')
             tArr=nsoNow['localAutoIncrement'] if nsoNow is not None else self._settings['ns_default_allowLocalAutoIncrement']
             if tArr is True or nsPrev in tArr:
-               _, propsParent, _=self._findInIndex(idsParent, strictMode=True, calcProperties=False)
+               _, propsParent, _, _=self._findInIndex(idsParent, strictMode=True, calcProperties=False)
                if 'localAutoIncrement' not in propsParent:
                   tArr={nsNow:nsiNow}
                else:
